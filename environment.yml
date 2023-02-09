@@ -1,0 +1,22 @@
+name: rewrite
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.10
+  - pip
+  - cudatoolkit=11.2
+  - cudnn=8.1.0
+  - pip:
+      - conda-lock
+      - ipykernel
+      - pandas
+      - numpy
+      - matplotlib
+      - pillow
+      - scikit-learn
+      - argparse
+      - pyarrow
+      - visidata
+      - rasterio
