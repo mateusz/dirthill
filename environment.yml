@@ -20,3 +20,8 @@ dependencies:
       - pyarrow
       - visidata
       - rasterio
+      - torch
+      - torchvision
+      - torchaudio
+      - torchdata
+      - torcharrow
