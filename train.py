@@ -15,10 +15,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 n=128
 ts = terrain_set.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
     size=n, stride=8, local_norm=True)
-t,v = torch.utils.data.random_split(ts, [0.98, 0.02])
-train = DataLoader(t, batch_size=4096, shuffle=True,
+t,v = torch.utils.data.random_split(ts, [0.95, 0.05])
+train = DataLoader(t, batch_size=1024, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
-val = DataLoader(v, batch_size=4096, shuffle=True,
+val = DataLoader(v, batch_size=1024, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
 
 #%%
@@ -29,7 +29,7 @@ print("%d,%d" % (len(train), len(val)))
 
 class Net(nn.Module):
     def __init__(self):
-        h = 512
+        h = 256
         dropout = 0.1
         super().__init__()
         self.l1 = nn.Linear(2*n-1,h)
@@ -52,7 +52,9 @@ def area_mse(output, target):
     loss = torch.mean((output - target)**2)
     return loss
 
-for epoch in range(16):  # loop over the dataset multiple times
+min_val_loss = 9999999999.0
+early_stop_counter = 0
+for epoch in range(32):  # loop over the dataset multiple times
     running_loss = 0.0
     net.train()
 
@@ -84,4 +86,16 @@ for epoch in range(16):  # loop over the dataset multiple times
             loss = lossfn(outputs, targets.to(device))
             running_loss += loss.item()
 
-    print("val: %.2f" % (running_loss/len(val)))
+    vl = running_loss/len(val)
+    print("val: %.2f" % (vl))
+
+    if vl<min_val_loss:
+        min_val_loss = vl
+        early_stop_counter = 0
+        print('saving...')
+        torch.save(net, 'models/simple')
+    else:
+        early_stop_counter += 1
+
+    if early_stop_counter>=3:
+        break
