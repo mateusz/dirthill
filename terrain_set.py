@@ -7,7 +7,7 @@ import pandas as pd
 
 #%%
 class TerrainSet(Dataset):
-    def __init__(self, file, size, stride, nan_threshold=-10000, global_norm=False, local_norm=False):
+    def __init__(self, file, size, stride, nan_threshold=-10000, n=0, global_norm=False, local_norm=False):
         self.size = size
         self.local_norm = local_norm
 
@@ -24,6 +24,9 @@ class TerrainSet(Dataset):
             self.data = data
 
         index = []
+        lim = 0
+        if n>0:
+            lim = n
         for x in range(0, img.width-size, stride):
             for y in range(0, img.height-size, stride):
                 square = self.data[x:x+size, y:y+size]
@@ -31,6 +34,12 @@ class TerrainSet(Dataset):
                     continue
 
                 index.append([x,y])
+                lim -= 1
+                if n>0 and lim<1:
+                    break
+
+            if n>0 and lim<1:
+                break
 
         self.index = pd.DataFrame(index, columns=['x','y'])
 
@@ -41,26 +50,28 @@ class TerrainSet(Dataset):
         item = self.index.iloc[idx]
 
         d = self.data[item.x:item.x+self.size, item.y:item.y+self.size]
-        print(d.shape)
-
         if self.local_norm:
-            # Slower by 50%, could be optimised by preprocessing
-            return d - np.min(d)
-        else:
-            return d
+            d = d - np.min(d)
 
-ts = TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif', 128, 32, local_norm=True)
+        return [
+            np.concatenate((d[0:self.size, 0], d[0, 1:self.size])),
+            d.flatten()
+        ]
 
-tsdl = DataLoader(ts, batch_size=32, shuffle=True)
 
-elapseds = []
-start = datetime.now()
-steps = 0
-for x in tsdl:
-    steps += 1
-    elapsed = datetime.now()-start
-    start = datetime.now()
-    elapseds.append(elapsed.total_seconds()*1000.0)
+ts = TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif', 16, 16, n=1, local_norm=True)
+ts[0]
+#
+#tsdl = DataLoader(ts, batch_size=32, shuffle=True)
 
-print('%.4fms' % (np.mean(elapseds)))
+#elapseds = []
+#start = datetime.now()
+#steps = 0
+#for x in tsdl:
+#    steps += 1
+#    elapsed = datetime.now()-start
+#    start = datetime.now()
+#    elapseds.append(elapsed.total_seconds()*1000.0)
+
+#print('%.4fms' % (np.mean(elapseds)))
 # 4ms for globally normed, 6ms for locally normed
