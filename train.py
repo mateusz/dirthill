@@ -29,8 +29,8 @@ print("%d,%d" % (len(train), len(val)))
 
 class Net(nn.Module):
     def __init__(self):
-        h = 256
-        dropout = 0.1
+        h = 512
+        dropout = 0.0
         super().__init__()
         self.l1 = nn.Linear(2*n-1,h)
         self.d1 = nn.Dropout(p=dropout)

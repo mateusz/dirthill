@@ -12,6 +12,7 @@ from torch import nn
 import torch.nn.functional as F
 
 size = 128
+n = 128
 stride = 8
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -23,8 +24,8 @@ ts = terrain_set.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19
 #%%
 class Net(nn.Module):
     def __init__(self):
-        h = 256
-        dropout = 0.1
+        h = 512
+        dropout = 0.0
         super().__init__()
         self.l1 = nn.Linear(2*n-1,h)
         self.d1 = nn.Dropout(p=dropout)
@@ -58,16 +59,23 @@ def plot_input(ax, data):
     edge2x = np.linspace(0, size-1, size)
     edge2y = np.full(size, 0)
 
-    ax.plot(edge1x, edge1y, edge1, color="red", linewidth=2)
-    ax.plot(edge2x, edge2y, edge2, color="red", linewidth=2)
+    ax.plot(edge1x, edge1y, edge1, color="red", linewidth=2, zorder=100)
+    ax.plot(edge2x, edge2y, edge2, color="red", linewidth=2, zorder=100)
 
 def show(input, target, out):
 
-    _, (ax1, ax2) = plt.subplots(1,2, subplot_kw=dict(projection='3d'), figsize=(10, 5))
-    plot_surface(ax1, target, cm.gist_earth, 0.7)
-    plot_surface(ax2, out, cm.gist_earth, 0.7)
+    _, ax = plt.subplots(2,2, subplot_kw=dict(projection='3d'), figsize=(10, 10))
+    ax1, ax2, ax3, ax4 = ax.flatten()
+
+    plot_surface(ax1, target, cm.gist_earth, 1.0)
+    plot_surface(ax2, out, cm.gist_earth, 1.0)
     plot_input(ax1, input)
     plot_input(ax2, input)
+
+    plot_surface(ax3, target, cm.gist_earth, 1.0)
+    plot_surface(ax4, out, cm.gist_earth, 1.0)
+    plot_input(ax3, input)
+    plot_input(ax4, input)
 
     ax1.azim = 225
     ax2.azim = 225
@@ -75,13 +83,29 @@ def show(input, target, out):
     ax2.elev= 35
     ax1.set_title('Truth')
     ax2.set_title('Model')
+
+    ax3.azim = 45
+    ax4.azim = 45
+    ax3.elev= 35
+    ax4.elev= 35
+    ax3.set_title('Truth (back)')
+    ax4.set_title('Model (back)')
     plt.show()
 
 
 net = torch.load('models/simple')
 net.eval()
+
+#%%
 with torch.no_grad():
-    input,target = ts[720]
+    # 2800
+    # 2000
+    # 1700
+    # 1400
+    # 25000
+
+
+    input,target = ts[2800]
     out = net(torch.Tensor(input).to(device)).cpu()
 
     show(input, target.reshape(size,size), out.reshape(size,size).numpy())
