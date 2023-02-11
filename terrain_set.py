@@ -7,7 +7,11 @@ import pandas as pd
 
 #%%
 class TerrainSet(Dataset):
-    def __init__(self, file, size, stride, nan_threshold=-10000, n=0, global_norm=False, local_norm=False):
+    def __init__(self, file, size, stride,
+        nan_threshold=-10000, n=0, global_norm=False, local_norm=False,
+        full_boundary=False,
+    ):
+        self.full_boundary = full_boundary
         self.size = size
         self.local_norm = local_norm
 
@@ -53,9 +57,21 @@ class TerrainSet(Dataset):
         if self.local_norm:
             d = d - np.min(d)
 
+        if self.full_boundary:
+            b = np.concatenate((
+                d[:, 0],
+                d[0, :],
+                d[:, self.size-1],
+                d[self.size-1, :],
+            ))
+            t = d[1:-1,1:-1].flatten()
+        else:
+            b = np.concatenate((d[0:self.size, 0], d[0, 1:self.size])),
+            t = d.flatten()
+
         return [
-            np.concatenate((d[0:self.size, 0], d[0, 1:self.size])),
-            d.flatten()
+            b,
+            t,
         ]
 
 
