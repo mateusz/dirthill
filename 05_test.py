@@ -22,25 +22,41 @@ ts = terrain_set.TerrainSet('data/USGS_1M_10_x43y466_OR_RogueSiskiyouNF_2019_B19
     size=size, stride=stride, local_norm=True, full_boundary=True)
 
 #%%
+class Net2(nn.Module):
+    def __init__(self):
+        h = 128
+        h2 = 1024
+        h3 = 2048
+        h4 = 8192
+        super().__init__()
+
+        self.l1 = nn.Linear(4*n,h)
+        self.l2 = nn.Linear(h,h2)
+        self.l3 = nn.Linear(h2,h3)
+        self.l4 = nn.Linear(h3,h4)
+
+        self.l5 = nn.Linear(h4, (n-2)*(n-2))
+
+    def forward(self, x):
+        x = F.relu(self.l1(x))
+        x = F.relu(self.l2(x))
+        x = F.relu(self.l3(x))
+        x = F.relu(self.l4(x))
+        x = F.relu(self.l5(x))
+        return x
+
 class Net(nn.Module):
     def __init__(self):
         h = 128
         h2 = 4096
-        dropout = 0.0
         super().__init__()
         self.l1 = nn.Linear(4*n,h)
-        self.d1 = nn.Dropout(p=dropout)
         self.l2 = nn.Linear(h,h2)
-        self.d2 = nn.Dropout(p=dropout)
-
         self.l5 = nn.Linear(h2, (n-2)*(n-2))
-        self.d4 = nn.Dropout(p=dropout)
 
     def forward(self, x):
         x = F.relu(self.l1(x))
-        x = self.d1(x)
         x = F.relu(self.l2(x))
-        x = self.d2(x)
         x = F.relu(self.l5(x))
         #x = self.d2(x)
         return x
@@ -112,6 +128,8 @@ def show(input, target, out):
 
 
 net = torch.load('models/04')
+#net = torch.load('models/04-128_64_512_4096-d0')
+#net = torch.load('models/04-128_4096-d0')
 net.eval()
 
 #%%
@@ -122,8 +140,20 @@ with torch.no_grad():
     # 1400
     # 25000
 
+    # second file
+    # 1400
+    # 2500
+    # 2700
+    # 2900
+    # 3300
+    # 3700
+    # 4500
+    # 4700
+    # 5200 saddle
+    # 5300 island
+    # 5500 multiple rivers
 
-    input,target = ts[9000]
+    input,target = ts[5200]
     out = net(torch.Tensor(input).to(device)).cpu()
 
     show(input, target.reshape(size-2,size-2), out.reshape(size-2,size-2).numpy())

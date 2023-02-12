@@ -9,6 +9,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torch
 
+torch.manual_seed(1)
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #%%
 
@@ -34,31 +36,28 @@ print("%d,%d" % (len(train), len(val)))
 # 128->1024->2048->8192, 0.001 = vl 8, smooth, doesn't fit edges
 # 128->4096, 0.2 = vl 80, overfit
 # 128->4096, 0.0 = vl 5.5 and it learned the texture!
-# todo: will a simple net without dropout also learn texture?
+# 512, 0 = vl 9, no texture
+# 128->1024->2048->8192, 0 = vl 3.50, smooth, but produces nontrivial shapes, but still no sharp corners
 class Net(nn.Module):
     def __init__(self):
         h = 128
         h2 = 4096
-        dropout = 0.0
         super().__init__()
+
         self.l1 = nn.Linear(4*n,h)
-        self.d1 = nn.Dropout(p=dropout)
         self.l2 = nn.Linear(h,h2)
-        self.d2 = nn.Dropout(p=dropout)
 
         self.l5 = nn.Linear(h2, (n-2)*(n-2))
-        self.d4 = nn.Dropout(p=dropout)
 
     def forward(self, x):
         x = F.relu(self.l1(x))
-        x = self.d1(x)
         x = F.relu(self.l2(x))
-        x = self.d2(x)
+
         x = F.relu(self.l5(x))
-        #x = self.d2(x)
         return x
 
 net = Net().to(device)
+#net = torch.load('models/04')
 opt = optim.Adam(net.parameters())
 lossfn = nn.MSELoss()
 
@@ -68,7 +67,7 @@ def area_mse(output, target):
 
 min_val_loss = 9999999999.0
 early_stop_counter = 0
-for epoch in range(32):  # loop over the dataset multiple times
+for epoch in range(999):  # loop over the dataset multiple times
     running_loss = 0.0
     net.train()
 
