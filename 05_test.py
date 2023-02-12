@@ -18,24 +18,30 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 #%%
 
-ts = terrain_set.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
+ts = terrain_set.TerrainSet('data/USGS_1M_10_x43y466_OR_RogueSiskiyouNF_2019_B19.tif',
     size=size, stride=stride, local_norm=True, full_boundary=True)
 
 #%%
 class Net(nn.Module):
     def __init__(self):
-        h = 512
+        h = 128
+        h2 = 4096
         dropout = 0.0
         super().__init__()
         self.l1 = nn.Linear(4*n,h)
         self.d1 = nn.Dropout(p=dropout)
-        self.l2 = nn.Linear(h, (n-2)*(n-2))
+        self.l2 = nn.Linear(h,h2)
         self.d2 = nn.Dropout(p=dropout)
+
+        self.l5 = nn.Linear(h2, (n-2)*(n-2))
+        self.d4 = nn.Dropout(p=dropout)
 
     def forward(self, x):
         x = F.relu(self.l1(x))
         x = self.d1(x)
         x = F.relu(self.l2(x))
+        x = self.d2(x)
+        x = F.relu(self.l5(x))
         #x = self.d2(x)
         return x
 
@@ -101,12 +107,14 @@ def show(input, target, out):
     ax4.elev= 35
     ax3.set_title('Truth (back)')
     ax4.set_title('Model (back)')
+
     plt.show()
 
 
 net = torch.load('models/04')
 net.eval()
 
+#%%
 with torch.no_grad():
     # 2800
     # 2000
@@ -115,7 +123,7 @@ with torch.no_grad():
     # 25000
 
 
-    input,target = ts[25000]
+    input,target = ts[9000]
     out = net(torch.Tensor(input).to(device)).cpu()
 
     show(input, target.reshape(size-2,size-2), out.reshape(size-2,size-2).numpy())

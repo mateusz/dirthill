@@ -27,20 +27,34 @@ print("%d,%d" % (len(train), len(val)))
 
 #%%
 
+# 2048, 0.001 = val loss 9
+# 4096, 0.001 = bad, loss 25, tons of noise
+# 128->4096, 0.001 = vl 8, produces some interesting noise, seemingly better - fits boundaries better
+# 128->64->512->4096, 0.001 = vl 6.4, although the result is quite smooth again.
+# 128->1024->2048->8192, 0.001 = vl 8, smooth, doesn't fit edges
+# 128->4096, 0.2 = vl 80, overfit
+# 128->4096, 0.0 = vl 5.5 and it learned the texture!
+# todo: will a simple net without dropout also learn texture?
 class Net(nn.Module):
     def __init__(self):
-        h = 512
+        h = 128
+        h2 = 4096
         dropout = 0.0
         super().__init__()
         self.l1 = nn.Linear(4*n,h)
         self.d1 = nn.Dropout(p=dropout)
-        self.l2 = nn.Linear(h, (n-2)*(n-2))
+        self.l2 = nn.Linear(h,h2)
         self.d2 = nn.Dropout(p=dropout)
+
+        self.l5 = nn.Linear(h2, (n-2)*(n-2))
+        self.d4 = nn.Dropout(p=dropout)
 
     def forward(self, x):
         x = F.relu(self.l1(x))
         x = self.d1(x)
         x = F.relu(self.l2(x))
+        x = self.d2(x)
+        x = F.relu(self.l5(x))
         #x = self.d2(x)
         return x
 
