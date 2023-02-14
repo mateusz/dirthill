@@ -46,15 +46,19 @@ conv1 = torch.nn.Sequential(
 
         torch.nn.Flatten(),
 
-        MultiDimLinear(1024, (1,32,32)),
+        torch.nn.Linear(1024, 4096),
         torch.nn.ReLU(),
         torch.nn.Dropout(0.01),
 
-        torch.nn.ConvTranspose2d(1,1,4,stride=2,padding=1),
+        MultiDimLinear(4096, (16,16,16)),
         torch.nn.ReLU(),
         torch.nn.Dropout(0.01),
 
-        torch.nn.ConvTranspose2d(1,1,4,stride=2,padding=2),
+        torch.nn.ConvTranspose2d(16,16,4,stride=2,padding=1),
+        torch.nn.ReLU(),
+        torch.nn.Dropout(0.01),
+
+        torch.nn.ConvTranspose2d(16,1,4,stride=4,padding=1),
         torch.nn.ReLU(),
         torch.nn.Dropout(0.01),
 
