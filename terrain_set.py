@@ -9,11 +9,13 @@ import pandas as pd
 class TerrainSet(Dataset):
     def __init__(self, file, size, stride,
         nan_threshold=-10000, n=0, global_norm=False, local_norm=False,
-        full_boundary=False,
+        full_boundary=False, ordered_boundary=True, boundary_overflow=0
     ):
         self.full_boundary = full_boundary
+        self.ordered_boundary = ordered_boundary
         self.size = size
         self.local_norm = local_norm
+        self.boundary_overflow = boundary_overflow
 
         img = rasterio.open(file)
         data = img.read(1)
@@ -58,12 +60,21 @@ class TerrainSet(Dataset):
             d = d - np.min(d)
 
         if self.full_boundary:
-            b = np.concatenate((
-                d[:, 0],
-                d[0, :],
-                d[:, self.size-1],
-                d[self.size-1, :],
-            ))
+            if self.ordered_boundary:
+                b = np.concatenate((
+                    d[:, 0],
+                    d[-1, 1:],
+                    np.flip(d[1:, -1]),
+                    np.flip(d[0, 1:-1]),
+                    d[:self.boundary_overflow, 0],
+                ))
+            else:
+                b = np.concatenate((
+                    d[:, 0],
+                    d[0, :],
+                    d[:, self.size-1],
+                    d[self.size-1, :],
+                ))
             t = d[1:-1,1:-1].flatten()
         else:
             b = np.concatenate((d[0:self.size, 0], d[0, 1:self.size])),
