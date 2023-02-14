@@ -25,25 +25,43 @@ val = DataLoader(v, batch_size=1024, shuffle=True,
 
 #%%
 
+class MultiDimLinear(torch.nn.Linear):
+    def __init__(self, in_features, out_shape, **kwargs):
+        self.out_shape = out_shape
+        out_features = np.prod(out_shape)
+        super().__init__(in_features, out_features, **kwargs)
+
+    def forward(self, x):
+        out = super().forward(x)
+        return out.reshape((len(x), *self.out_shape))
+
 conv1 = torch.nn.Sequential(
-        torch.nn.Conv1d(1, 32, 4, stride=2),
+        torch.nn.Conv1d(1, 32, 4, stride=4),
         torch.nn.ReLU(),
         torch.nn.Dropout(0.01),
 
-        torch.nn.Conv1d(32, 32, 4, stride=2, padding=2),
+        torch.nn.Conv1d(32, 32, 4, stride=4, padding=2),
         torch.nn.ReLU(),
         torch.nn.Dropout(0.01),
 
-        nn.Flatten(),
-        torch.nn.Linear((n)*32, 256),
+        torch.nn.Flatten(),
+
+        MultiDimLinear(1024, (1,32,32)),
         torch.nn.ReLU(),
         torch.nn.Dropout(0.01),
 
-        torch.nn.Linear(256, (n-2)*(n-2)),
+        torch.nn.ConvTranspose2d(1,1,4,stride=2,padding=1),
         torch.nn.ReLU(),
+        torch.nn.Dropout(0.01),
+
+        torch.nn.ConvTranspose2d(1,1,4,stride=2,padding=2),
+        torch.nn.ReLU(),
+        torch.nn.Dropout(0.01),
+
+        torch.nn.Flatten(),
 )
 
-conv1(torch.Tensor([ts[0][0]]).unsqueeze(1)).shape
+conv1(torch.Tensor([ts[0][0], ts[1][0]]).unsqueeze(1)).shape
 
 #%%
 

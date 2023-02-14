@@ -89,6 +89,15 @@ def show(input, target, out, r=45):
 
     plt.show()
 
+class MultiDimLinear(torch.nn.Linear):
+    def __init__(self, in_features, out_shape, **kwargs):
+        self.out_shape = out_shape
+        out_features = np.prod(out_shape)
+        super().__init__(in_features, out_features, **kwargs)
+
+    def forward(self, x):
+        out = super().forward(x)
+        return out.reshape((len(x), *self.out_shape))
 
 net = torch.load('models/06')
 net.eval()
@@ -114,7 +123,7 @@ with torch.no_grad():
     # 5300 island
     # 5500 multiple rivers
 
-    input,target = ts[5200]
+    input,target = ts[3300]
     out = net(torch.Tensor([input]).unsqueeze(1).to(device)).cpu()
 
     sinput = np.concatenate((
@@ -123,4 +132,4 @@ with torch.no_grad():
         np.flip(input[size*2-2:size*3-2]),
         input[size-1:size*2-1],
     ))
-    show(sinput, target.reshape(size-2,size-2), out.reshape(size-2,size-2).numpy(), r=100)
+    show(sinput, target.reshape(size-2,size-2), out.reshape(size-2,size-2).numpy(), r=45)
