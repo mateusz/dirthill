@@ -47,18 +47,32 @@ conv1 = nn.Sequential(
         nn.ReLU(inplace=True),
         nn.MaxPool2d(2),
 
+        nn.Conv2d(ch*8, ch*16, 3, padding=1),
+        nn.BatchNorm2d(ch*16),
+        nn.ReLU(inplace=True),
+        nn.MaxPool2d(2),
+
+        nn.Conv2d(ch*16, ch*32, 3, padding=1),
+        nn.BatchNorm2d(ch*32),
+        nn.ReLU(inplace=True),
+        nn.MaxPool2d(2),
+
         nn.Flatten(),
 
-        nn.Linear(8*8*(ch*8), 512),
+        nn.Linear(2*2*(ch*32), 256),
         nn.ReLU(True),
-        nn.Linear(512, 128),
-        nn.ReLU(True),
-        nn.Linear(128, 512),
-        nn.ReLU(True),
-        nn.Linear(512, 8*8*(ch*8)),
+        nn.Linear(256, 2*2*(ch*32)),
         nn.ReLU(True),
 
-        nn.Unflatten(dim=1, unflattened_size=(ch*8, 8, 8)),
+        nn.Unflatten(dim=1, unflattened_size=(ch*32, 2, 2)),
+        
+        nn.ConvTranspose2d(ch*32, ch*16, 3, stride=2, padding=1, output_padding=1),
+        nn.BatchNorm2d(ch*16),
+        nn.ReLU(inplace=True),
+
+        nn.ConvTranspose2d(ch*16, ch*8, 3, stride=2, padding=1, output_padding=1),
+        nn.BatchNorm2d(ch*8),
+        nn.ReLU(inplace=True),
         
         nn.ConvTranspose2d(ch*8, ch*4, 3, stride=2, padding=1, output_padding=1),
         nn.BatchNorm2d(ch*4),
@@ -81,8 +95,8 @@ conv1(torch.Tensor([ts[0][1], ts[1][1]]).unsqueeze(1)).shape
 
 net = conv1.to(device)
 opt = optim.Adam(net.parameters())
-#lossfn = nn.MSELoss()
-lossfn = nn.L1Loss()
+lossfn = nn.MSELoss()
+#lossfn = nn.L1Loss()
 
 min_val_loss = 9999999999.0
 early_stop_counter = 0
