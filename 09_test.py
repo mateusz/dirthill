@@ -18,7 +18,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 #%%
 
-ts = terrain_set.TerrainSet('data/USGS_1M_10_x43y466_OR_RogueSiskiyouNF_2019_B19.tif',
+ts = terrain_set.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
     size=size, stride=stride, local_norm=True, square_output=True)
 
 #%%
@@ -58,7 +58,8 @@ def show(target, out, r=45):
 
     plt.show()
 
-net = torch.load('models/08')
+#net = torch.load('models/08')
+net = torch.load('models/08-full-ae-vl1.36')
 net.eval()
 
 #%%
@@ -67,7 +68,7 @@ with torch.no_grad():
     # 2000
     # 1700
     # 1400
-    # 25001
+    # 25001 - two rivers
 
     # second file
     # 1400
@@ -82,7 +83,7 @@ with torch.no_grad():
     # 5300 island
     # 5500 multiple rivers
 
-    input,target = ts[5500]
+    input,target = ts[25001]
     out = net(torch.Tensor([target]).unsqueeze(1).to(device)).cpu().squeeze(1)
 
     show(target, out[0].numpy(), r=45)
