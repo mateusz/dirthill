@@ -35,6 +35,9 @@ class MultiDimLinear(torch.nn.Linear):
         out = super().forward(x)
         return out.reshape((len(x), *self.out_shape))
 
+# Todo:
+# - maybe just go back to convolving and then using linear (to not muddle the results with upscaler issues)
+# - try bigger kernel (8 didnt change anything), but maybe 32 or something?
 conv1 = torch.nn.Sequential(
         torch.nn.Conv1d(1, 32, 4, stride=4),
         torch.nn.ReLU(),
