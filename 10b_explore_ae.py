@@ -102,60 +102,58 @@ def show(target, out, r=35):
 
 #%%
 
-_,target = ts[25001]
-
-inp = torch.Tensor([target]).unsqueeze(1).to(device)
-noise = torch.randn(1, 1, 128, 128).to(device)
-
-with torch.no_grad():
-    noisy_inp = inp+3*noise
-    v = encoder(noisy_inp)
-    out = decoder(v).cpu().squeeze(1)
-    show(noisy_inp[0][0].cpu().numpy(), out[0].numpy(), r=45)
-
-#%%
-dl = DataLoader(ts, batch_size=256, shuffle=False,
-    num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
-
-vs = np.ndarray((0,256))
-print(len(dl)*256)
-with torch.no_grad():
-    for i, data in enumerate(dl, 0):
-        _, targets = data
-        v = encoder(targets.unsqueeze(1).to(device))
-        vs = np.concatenate((vs, v.cpu()))
-        print(len(vs))
-
-vs.shape
-#%%
-
-df = pd.DataFrame({'v': vs.tolist()})
-df
-
-#%%
-df.to_parquet('data/ea-embeds.parquet')
-
-#%%
-
-_,truth = ts[25001]
-
-with torch.no_grad():
-    inp = torch.Tensor([df.loc[25001]['v']]).to(device)
-    out = decoder(inp).cpu().squeeze(1)
-    show(truth, out[0].numpy(), r=45)
-
-#%%
+df = pd.read_parquet('data/ea-embeds.parquet')
 pca = PCA(n_components=50)
-p = pca.fit_transform(vs)
-tsne = TSNE(n_components=2)
-t = tsne.fit_transform(p)
+p = pca.fit_transform(np.vstack(df['v'].to_numpy()))
 
 #%%
 
-tr = t.reshape((2,len(t)))
-plt.scatter(tr[0], tr[1], cmap='hot')
+pdf = pd.DataFrame({'pca': p.tolist()})
+pdf.to_parquet('data/pca50.parquet')
+
+#%%
+
+pdf = pd.read_parquet('data/pca50.parquet')
+p = np.vstack(pdf['pca'].to_numpy())
+#%%
+
+pr = p.reshape((50,len(p)))
+plt.hist2d(pr[49], pr[48], bins=1000)
+plt.ylim(-50,50)
+plt.xlim(-50,50)
 plt.show()
 
 #%%
 
-# todo check loss on test dataset!
+pr = p.reshape((50,len(p)))
+
+hists = np.apply_along_axis(lambda a: np.histogram(a, bins=np.linspace(-25,25,101)), 1, pr)
+x = np.vstack(hists[:,1])[:,:-1]
+y = np.vstack(hists[:,0])
+
+plt.imshow(y)
+plt.xticks(np.arange(0,100,1)[0::16], x[0][0::16])
+plt.title("First 50 PCA dimensions")
+plt.show()
+
+#%%
+
+df = pd.read_parquet('data/ea-embeds.parquet')
+v = np.vstack(df['v'].to_numpy())
+
+#%%
+
+vr = v.reshape((256,len(v)))
+
+hists = np.apply_along_axis(lambda a: np.histogram(a, bins=np.linspace(-10,150,161)), 1, vr)
+x = np.vstack(hists[:,1])[:,:-1]
+y = np.log(np.vstack(hists[:,0]))
+
+plt.imshow(y)
+plt.xticks(np.arange(0,160,1)[0::32], x[0][0::32])
+plt.title("All embedding dims")
+plt.show()
+
+#%%
+
+np.count_nonzero(v)/len(v.flatten())

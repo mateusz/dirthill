@@ -14,8 +14,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 n=128
 ts = terrain_set.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
-    size=n, stride=8, local_norm=True)
-t,v = torch.utils.data.random_split(ts, [0.95, 0.05])
+    size=n, stride=8, local_norm=True, n=1024, single_boundary=True)
+t,v = torch.utils.data.random_split(ts, [0.90, 0.10])
 train = DataLoader(t, batch_size=1024, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
 val = DataLoader(v, batch_size=1024, shuffle=True,
@@ -27,34 +27,19 @@ print("%d,%d" % (len(train), len(val)))
 
 #%%
 
-class Net(nn.Module):
-    def __init__(self):
-        h = 512
-        dropout = 0.0
-        super().__init__()
-        self.l1 = nn.Linear(2*n-1,h)
-        self.d1 = nn.Dropout(p=dropout)
-        self.l2 = nn.Linear(h, n*n)
-        self.d2 = nn.Dropout(p=dropout)
+net = nn.Sequential(
+    nn.Linear(n,256),
+    nn.Dropout(p=0.001),
+    nn.Linear(256, n*n),
+)
 
-    def forward(self, x):
-        x = F.relu(self.l1(x))
-        x = self.d1(x)
-        x = F.relu(self.l2(x))
-        #x = self.d2(x)
-        return x
-
-net = Net().to(device)
+net = net.to(device)
 opt = optim.Adam(net.parameters())
 lossfn = nn.MSELoss()
 
-def area_mse(output, target):
-    loss = torch.mean((output - target)**2)
-    return loss
-
 min_val_loss = 9999999999.0
 early_stop_counter = 0
-for epoch in range(32):  # loop over the dataset multiple times
+for epoch in range(9999):  # loop over the dataset multiple times
     running_loss = 0.0
     net.train()
 
@@ -67,7 +52,7 @@ for epoch in range(32):  # loop over the dataset multiple times
         # forward + backward + optimize
         outputs = net(inputs.to(device))
 
-        loss = area_mse(outputs, targets.to(device))
+        loss = lossfn(outputs, targets.to(device))
         loss.backward()
         opt.step()
 
@@ -93,7 +78,7 @@ for epoch in range(32):  # loop over the dataset multiple times
         min_val_loss = vl
         early_stop_counter = 0
         print('saving...')
-        torch.save(net, 'models/simple')
+        torch.save(net, 'models/02')
     else:
         early_stop_counter += 1
 

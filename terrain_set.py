@@ -10,7 +10,7 @@ class TerrainSet(Dataset):
     def __init__(self, file, size, stride,
         nan_threshold=-10000, n=0, global_norm=False, local_norm=False,
         full_boundary=False, ordered_boundary=True, boundary_overflow=0,
-        square_output=False,
+        square_output=False, single_boundary=False,
     ):
         self.full_boundary = full_boundary
         self.ordered_boundary = ordered_boundary
@@ -18,6 +18,7 @@ class TerrainSet(Dataset):
         self.local_norm = local_norm
         self.boundary_overflow = boundary_overflow
         self.square_output = square_output
+        self.single_boundary = single_boundary
 
         img = rasterio.open(file)
         data = img.read(1)
@@ -78,6 +79,9 @@ class TerrainSet(Dataset):
                     d[self.size-1, :],
                 ))
             t = d[1:-1,1:-1]
+        elif self.single_boundary:
+            b = d[0:self.size, 0]
+            t = d
         else:
             b = np.concatenate((d[0:self.size, 0], d[0, 1:self.size])),
             t = d
