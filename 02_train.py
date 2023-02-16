@@ -14,11 +14,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 n=128
 ts = terrain_set.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
-    size=n, stride=8, local_norm=True, n=1024, single_boundary=True)
+    size=n, stride=8, local_norm=True, single_boundary=True)
 t,v = torch.utils.data.random_split(ts, [0.90, 0.10])
-train = DataLoader(t, batch_size=1024, shuffle=True,
+train = DataLoader(t, batch_size=256, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
-val = DataLoader(v, batch_size=1024, shuffle=True,
+val = DataLoader(v, batch_size=256, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
 
 #%%
@@ -28,9 +28,9 @@ print("%d,%d" % (len(train), len(val)))
 #%%
 
 net = nn.Sequential(
-    nn.Linear(n,256),
-    nn.Dropout(p=0.001),
-    nn.Linear(256, n*n),
+    nn.Linear(n,1024),
+    nn.Dropout(p=0.5),
+    nn.Linear(1024, n*n),
 )
 
 net = net.to(device)

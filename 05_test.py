@@ -20,6 +20,25 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 ts = terrain_set.TerrainSet('data/USGS_1M_10_x43y466_OR_RogueSiskiyouNF_2019_B19.tif',
     size=size, stride=stride, local_norm=True, full_boundary=True)
+test = DataLoader(ts, batch_size=1024, shuffle=True,
+    num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
+
+#%%
+
+net = torch.load('models/02')
+net.eval()
+lossfn = nn.MSELoss()
+
+running_loss = 0.0
+with torch.no_grad():
+    for i,data in enumerate(test, 0):
+        inputs, targets = data
+        outputs = net(inputs.to(device))
+        loss = lossfn(outputs, targets.to(device))
+        running_loss += loss.item()
+
+l = running_loss/len(test)
+print("test: %.2f" % (l))
 
 #%%
 class Net2(nn.Module):

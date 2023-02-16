@@ -10,7 +10,7 @@ class TerrainSet(Dataset):
     def __init__(self, file, size, stride,
         nan_threshold=-10000, n=0, global_norm=False, local_norm=False,
         full_boundary=False, ordered_boundary=True, boundary_overflow=0,
-        square_output=False, single_boundary=False,
+        square_output=False, single_boundary=False
     ):
         self.full_boundary = full_boundary
         self.ordered_boundary = ordered_boundary

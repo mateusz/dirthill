@@ -117,7 +117,7 @@ with torch.no_grad():
     # 5300 island
     # 5500 multiple rivers
 
-    input,target = ts[2500]
+    input,target = ts[5300]
     out = net(torch.Tensor(input).to(device)).cpu()
 
     show(input, target.reshape(size,size), out.reshape(size,size).numpy())
