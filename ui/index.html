@@ -1,0 +1,35 @@
+<html>
+
+<head>
+	<meta charset="utf-8" />
+	<script src="dist/wasm_exec.js"></script>
+	<script src="dist/ort.min.js"></script>
+	<script>
+		document.infer = async function (input) {
+			try {
+				const session = await ort.InferenceSession.create('/dist/02-128.onnx');
+
+				const edge = Float32Array.from(JSON.parse(input));
+				const tEdge = new ort.Tensor('float32', edge, [1, 128]);
+
+				const feeds = { edge: tEdge }
+				const results = await session.run(feeds);
+
+				const tile = results.tile.data;
+				return tile
+			} catch (e) {
+				document.write(`failed to inference ONNX model: ${e}.`);
+				return []
+			}
+		}
+
+		const go = new Go();
+		WebAssembly.instantiateStreaming(fetch("dist/main.wasm"), go.importObject).then((result) => {
+			go.run(result.instance);
+		});
+	</script>
+</head>
+
+<body></body>
+
+</html>

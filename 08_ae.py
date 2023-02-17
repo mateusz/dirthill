@@ -25,6 +25,7 @@ val = DataLoader(v, batch_size=256, shuffle=True,
 
 #%%
 
+
 ch = 16
 conv1 = nn.Sequential(
         nn.Conv2d(1, ch, 3, padding=1),

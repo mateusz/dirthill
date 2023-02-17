@@ -17,6 +17,7 @@ torch.manual_seed(1)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 n=128
 size=128
+boundl = 128
 
 def plot_surface(ax, data, cmap, alpha):
     meshx, meshy = np.meshgrid(np.linspace(0, size, size), np.linspace(0, size, size))
@@ -33,13 +34,17 @@ def plot_boundary(ax, data):
         data[:,0],
         color="red", linewidth=2, zorder=100
     )
+
+    if boundl<=128:
+        return
+
     ax.plot(
         np.linspace(0, size-1, size),
-        np.full(size, 0),
-        data[0,:],
-        color="red", linewidth=2, zorder=100
+        np.full(size, size),
+        data[size-1, :],
+        color="purple", linewidth=2, zorder=100
     )
-
+    return
     ax.plot(
         np.full(size, size),
         np.linspace(0, size-1, size),
@@ -48,9 +53,9 @@ def plot_boundary(ax, data):
     )
     ax.plot(
         np.linspace(0, size-1, size),
-        np.full(size, size),
-        data[size-1, :],
-        color="purple", linewidth=2, zorder=100
+        np.full(size, 0),
+        data[0,:],
+        color="red", linewidth=2, zorder=100
     )
 
 def show(target, out, r=35):
@@ -94,7 +99,7 @@ test = DataLoader(tt, batch_size=256, shuffle=True,
 
 #%%
 
-net = torch.load('models/11')
+net = torch.load('models/11-%d'%boundl)
 net.eval()
 net = net.to(device)
 
@@ -105,12 +110,16 @@ lossfn = nn.MSELoss()
 with torch.no_grad():
     for i,data in enumerate(test, 0):
         inputs, targets = data
+        inputs = inputs[:,0:boundl]
         outputs = net(inputs.to(device))
         loss = lossfn(outputs, targets.unsqueeze(1).to(device))
         running_loss += loss.item()
 
 l = running_loss/len(test)
 print("test: %.2f" % (l))
+
+# 1 boundary loss: 98
+# 2 boundary loss: 46
 
 #%%
 
@@ -134,10 +143,12 @@ with torch.no_grad():
     # 5300 island
     # 5500 multiple rivers
 
-    input,target = ts[25000]
+    #input,target = ts[1400]
+    #input = input[0:boundl]
+    #out = net(torch.Tensor([input]).to(device)).cpu().squeeze(1)
+    #show(target, out[0].numpy(), r=45)
+
+    input,target = tt[8300]
+    input = input[0:boundl]
     out = net(torch.Tensor([input]).to(device)).cpu().squeeze(1)
     show(target, out[0].numpy(), r=45)
-
-    input,target = tt[5200]
-    out = net(torch.Tensor([input]).to(device)).cpu().squeeze(1)
-    show(target, out[0].numpy(), r=135)

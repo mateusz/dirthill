@@ -76,13 +76,13 @@ def show(target, out, r=35):
 
     plot_surface(ax1, target, cm.gist_earth, 1.0)
     plot_surface(ax2, out, cm.gist_earth, 1.0)
-    plot_boundary(ax1, target)
-    plot_boundary(ax2, target)
+    #plot_boundary(ax1, target)
+    #plot_boundary(ax2, target)
 
     plot_surface(ax3, target, cm.gist_earth, 1.0)
     plot_surface(ax4, out, cm.gist_earth, 1.0)
-    plot_boundary(ax3, target)
-    plot_boundary(ax4, target)
+    #plot_boundary(ax3, target)
+    #plot_boundary(ax4, target)
 
     ax1.azim = 180+r
     ax2.azim = 180+r
@@ -157,3 +157,32 @@ plt.show()
 #%%
 
 np.count_nonzero(v)/len(v.flatten())
+
+#%%
+
+with torch.no_grad():
+    # 2800
+    # 2000
+    # 1700
+    # 1400
+    # 25000 - two rivers
+
+    # second file
+    # 1400
+    # 2500
+    # 2700
+    # 2900
+    # 3300
+    # 3700
+    # 4500
+    # 4700
+    # 5200 saddle
+    # 5300 island
+    # 5500 multiple rivers
+
+    input,target = ts[25000]
+    wiped = np.random.rand(128,128)*5+25
+    res = 2
+    wiped[0::res,0::res] = target[0::res,0::res]
+    out = net(torch.Tensor([wiped]).unsqueeze(1).to(device)).cpu().squeeze(1)
+    show(wiped, out[0].numpy(), r=45)

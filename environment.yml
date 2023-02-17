@@ -25,3 +25,6 @@ dependencies:
       - torchaudio
       - torchdata
       - torcharrow
+      - pygbag
+      - pygame
+      - onnx

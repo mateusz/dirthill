@@ -19,6 +19,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #%%
 
 n=128
+boundl = 128
 ts = terrain_set2.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
     size=n, stride=8)
 t,v = torch.utils.data.random_split(ts, [0.9, 0.1])
@@ -42,14 +43,14 @@ print(decoder)
 
 ch = 16
 net = nn.Sequential(
-    nn.Linear(n*4, 1024),
+    nn.Linear(boundl, 1024),
     nn.ReLU(True),
     nn.Linear(1024, 256),
     nn.ReLU(True),
     decoder,
 ).to(device)
 
-net(torch.Tensor([ts[0][0], ts[1][0]]).to(device)).shape
+net(torch.Tensor([ts[0][0][0:boundl], ts[1][0][0:boundl]]).to(device)).shape
 
 #%%
 
@@ -64,6 +65,7 @@ for epoch in range(999):  # loop over the dataset multiple times
 
     for i, data in enumerate(train, 0):
         inputs, targets = data
+        inputs = inputs[:,0:boundl]
 
         # zero the parameter gradients
         opt.zero_grad()
@@ -86,6 +88,7 @@ for epoch in range(999):  # loop over the dataset multiple times
     with torch.no_grad():
         for i,data in enumerate(val, 0):
             inputs, targets = data
+            inputs = inputs[:,0:boundl]
             outputs = net(inputs.to(device))
             loss = lossfn(outputs, targets.unsqueeze(1).to(device))
             running_loss += loss.item()
@@ -97,7 +100,7 @@ for epoch in range(999):  # loop over the dataset multiple times
         min_val_loss = vl
         early_stop_counter = 0
         print('saving...')
-        torch.save(net, 'models/11')
+        torch.save(net, 'models/11-%d'%boundl)
     else:
         early_stop_counter += 1
 
