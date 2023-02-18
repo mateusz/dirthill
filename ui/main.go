@@ -27,7 +27,23 @@ func main() {
 	document := js.Global().Get("document")
 	asyncWait := make(chan interface{})
 
-	for i := 1; i <= 10; i++ {
+	document.Call("load").Call("then", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		p := document.Call("createElement", "p")
+		p.Set("innerHTML", "Model loaded")
+		document.Get("body").Call("appendChild", p)
+
+		asyncWait <- nil
+		return nil
+	}))
+
+	<-asyncWait
+
+	result := 0.0
+	p := document.Call("createElement", "p")
+	p.Set("innerHTML", fmt.Sprintf("Testing in progress, please wait..."))
+	document.Get("body").Call("appendChild", p)
+
+	for i := 1; i <= 100; i++ {
 		start := time.Now()
 		document.Call("infer", string(edge)).Call("then", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 			console.Call("log", js.ValueOf(args[0]))
@@ -36,6 +52,13 @@ func main() {
 		}))
 
 		<-asyncWait
-		console.Call("log", fmt.Sprintf("%.2fs", time.Now().Sub(start).Seconds()))
+
+		tdiff := time.Now().Sub(start).Seconds()
+		result += tdiff
+		console.Call("log", fmt.Sprintf("%.2fs", tdiff))
 	}
+
+	p = document.Call("createElement", "p")
+	p.Set("innerHTML", fmt.Sprintf("Inference benchmark result (100 repetitions): %.2fs/inference", result/100.0))
+	document.Get("body").Call("appendChild", p)
 }
