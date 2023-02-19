@@ -30,7 +30,21 @@ val = DataLoader(v, batch_size=256, shuffle=True,
 
 #%%
 
-net = torch.load('models/08-full-ae-vl1.36')
+class View(nn.Module):
+    def __init__(self, dim,  shape):
+        super(View, self).__init__()
+        self.dim = dim
+        self.shape = shape
+
+    def forward(self, input):
+        new_shape = list(input.shape)[:self.dim] + list(self.shape) + list(input.shape)[self.dim+1:]
+        return input.view(*new_shape)
+
+
+# https://github.com/pytorch/pytorch/issues/49538
+nn.Unflatten = View
+
+net = torch.load('models/08-full-ae-vl0.63')
 decoder = net[27:]
 #decoder.eval()
 size = 128

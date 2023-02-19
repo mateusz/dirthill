@@ -25,6 +25,19 @@ val = DataLoader(v, batch_size=256, shuffle=True,
 
 #%%
 
+class View(nn.Module):
+    def __init__(self, dim,  shape):
+        super(View, self).__init__()
+        self.dim = dim
+        self.shape = shape
+
+    def forward(self, input):
+        new_shape = list(input.shape)[:self.dim] + list(self.shape) + list(input.shape)[self.dim+1:]
+        return input.view(*new_shape)
+
+
+# https://github.com/pytorch/pytorch/issues/49538
+nn.Unflatten = View
 
 ch = 16
 conv1 = nn.Sequential(
@@ -65,7 +78,7 @@ conv1 = nn.Sequential(
         nn.Linear(256, 2*2*(ch*32)),
         nn.ReLU(True),
 
-        nn.Unflatten(dim=1, unflattened_size=(ch*32, 2, 2)),
+        nn.Unflatten(1, (ch*32, 2, 2)),
         
         nn.ConvTranspose2d(ch*32, ch*16, 3, stride=2, padding=1, output_padding=1),
         nn.BatchNorm2d(ch*16),

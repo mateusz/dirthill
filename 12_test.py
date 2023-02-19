@@ -99,6 +99,20 @@ test = DataLoader(tt, batch_size=256, shuffle=True,
 
 #%%
 
+class View(nn.Module):
+    def __init__(self, dim,  shape):
+        super(View, self).__init__()
+        self.dim = dim
+        self.shape = shape
+
+    def forward(self, input):
+        new_shape = list(input.shape)[:self.dim] + list(self.shape) + list(input.shape)[self.dim+1:]
+        return input.view(*new_shape)
+
+
+# https://github.com/pytorch/pytorch/issues/49538
+nn.Unflatten = View
+
 net = torch.load('models/11-%d'%boundl)
 net.eval()
 net = net.to(device)
@@ -120,6 +134,8 @@ print("test: %.2f" % (l))
 
 # 1 boundary loss: 98
 # 2 boundary loss: 46
+
+# onnx-ready 1 bound: 107
 
 #%%
 
