@@ -1,0 +1,242 @@
+{
+    "asset" : {
+        "generator" : "Khronos glTF Blender I/O v3.4.50",
+        "version" : "2.0"
+    },
+    "scene" : 0,
+    "scenes" : [
+        {
+            "extras" : {
+                "t3dExportFormat__" : 2,
+                "t3dPackTextures__" : 1,
+                "t3dExportLights__" : 0,
+                "t3dExportCameras__" : 1,
+                "t3dCameraResolution__" : [
+                    796,
+                    448
+                ],
+                "t3dExportOnSave__" : 1,
+                "t3dExportFilepath__" : "/home/mateusz/projects/dirtwhirl/cubetest/grassblock.gltf",
+                "t3dCollections__" : {
+                    "Collection" : {
+                        "objects" : [
+                            "Camera",
+                            "Cube"
+                        ],
+                        "offset" : [
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    }
+                },
+                "t3dWorlds__" : {
+                    "World" : {
+                        "ambient color" : [
+                            0.05087608844041824,
+                            0.05087608844041824,
+                            0.05087608844041824,
+                            1.0
+                        ],
+                        "ambient energy" : 1.0,
+                        "clear color" : [
+                            0.5801682472229004,
+                            0.7145553827285767,
+                            1.0,
+                            1.0
+                        ],
+                        "fog mode" : "OFF",
+                        "fog color" : [
+                            1.0,
+                            1.0,
+                            1.0,
+                            1.0
+                        ],
+                        "fog range start" : 0.5,
+                        "fog range end" : 0.8999999761581421
+                    }
+                },
+                "t3dCurrentWorld__" : "World"
+            },
+            "name" : "Scene",
+            "nodes" : [
+                0,
+                1
+            ]
+        }
+    ],
+    "nodes" : [
+        {
+            "camera" : 0,
+            "extras" : {
+                "t3dFovY__" : 0.6911112070083618,
+                "t3dOriginalLocalPosition__" : [
+                    -2.0293006896972656,
+                    -1.9961071014404297,
+                    0.7863848209381104
+                ]
+            },
+            "name" : "Camera",
+            "rotation" : [
+                -0.07082682847976685,
+                -0.3831629157066345,
+                -0.029482701793313026,
+                0.9204893112182617
+            ],
+            "translation" : [
+                -2.0293006896972656,
+                0.7863848209381104,
+                1.9961071014404297
+            ]
+        },
+        {
+            "extras" : {
+                "t3dOriginalLocalPosition__" : [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "mesh" : 0,
+            "name" : "Cube",
+            "scale" : [
+                3.7300000190734863,
+                3.7300000190734863,
+                3.7300000190734863
+            ]
+        }
+    ],
+    "cameras" : [
+        {
+            "name" : "Camera.001",
+            "perspective" : {
+                "aspectRatio" : 1.7767857142857142,
+                "yfov" : 0.3998137388457307,
+                "zfar" : 1000,
+                "znear" : 0.10000000149011612
+            },
+            "type" : "perspective"
+        }
+    ],
+    "materials" : [
+        {
+            "doubleSided" : true,
+            "name" : "Material",
+            "pbrMetallicRoughness" : {
+                "baseColorTexture" : {
+                    "index" : 0
+                },
+                "metallicFactor" : 0,
+                "roughnessFactor" : 0.4000000059604645
+            }
+        }
+    ],
+    "meshes" : [
+        {
+            "name" : "Cube.001",
+            "primitives" : [
+                {
+                    "attributes" : {
+                        "POSITION" : 0,
+                        "TEXCOORD_0" : 1,
+                        "NORMAL" : 2
+                    },
+                    "indices" : 3,
+                    "material" : 0
+                }
+            ]
+        }
+    ],
+    "textures" : [
+        {
+            "sampler" : 0,
+            "source" : 0
+        }
+    ],
+    "images" : [
+        {
+            "bufferView" : 4,
+            "mimeType" : "image/png",
+            "name" : "grass_block_texture"
+        }
+    ],
+    "accessors" : [
+        {
+            "bufferView" : 0,
+            "componentType" : 5126,
+            "count" : 24,
+            "max" : [
+                0.13426923751831055,
+                0.13426923751831055,
+                0.13426923751831055
+            ],
+            "min" : [
+                -0.13426923751831055,
+                -0.13426923751831055,
+                -0.13426923751831055
+            ],
+            "type" : "VEC3"
+        },
+        {
+            "bufferView" : 1,
+            "componentType" : 5126,
+            "count" : 24,
+            "type" : "VEC2"
+        },
+        {
+            "bufferView" : 2,
+            "componentType" : 5126,
+            "count" : 24,
+            "type" : "VEC3"
+        },
+        {
+            "bufferView" : 3,
+            "componentType" : 5123,
+            "count" : 36,
+            "type" : "SCALAR"
+        }
+    ],
+    "bufferViews" : [
+        {
+            "buffer" : 0,
+            "byteLength" : 288,
+            "byteOffset" : 0,
+            "target" : 34962
+        },
+        {
+            "buffer" : 0,
+            "byteLength" : 192,
+            "byteOffset" : 288,
+            "target" : 34962
+        },
+        {
+            "buffer" : 0,
+            "byteLength" : 288,
+            "byteOffset" : 480,
+            "target" : 34962
+        },
+        {
+            "buffer" : 0,
+            "byteLength" : 72,
+            "byteOffset" : 768,
+            "target" : 34963
+        },
+        {
+            "buffer" : 0,
+            "byteLength" : 1871,
+            "byteOffset" : 840
+        }
+    ],
+    "samplers" : [
+        {
+            "magFilter" : 9728,
+            "minFilter" : 9984
+        }
+    ],
+    "buffers" : [
+        {
+            "byteLength" : 2712,
+            "uri" : "data:application/octet-stream;base64,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"
+        }
+    ]
+}
