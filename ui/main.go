@@ -28,11 +28,19 @@ const (
 	csHeight     = 32
 	csHRatio     = 2
 	csWRatio     = 2
+	sides        = 1
 )
 
 var (
-	neutralFill = color.RGBA{60, 70, 80, 255}
+	neutralFill   = color.RGBA{60, 70, 80, 255}
+	neutralBright = color.RGBA{78, 90, 102, 255}
+	csHighlight1  = color.RGBA{251, 105, 80, 255}
+	csHighlight2  = color.RGBA{195, 119, 145, 255}
 )
+
+func htoc(h float64) *tetra3d.Color {
+	return tetra3d.NewColorFromHSV(0.35-(h/40.0)*0.3, 0.5, 0.7)
+}
 
 type Game struct {
 	console       js.Value
@@ -58,9 +66,16 @@ func NewSurfaceMesh(w, h int, v []float32) *tetra3d.Mesh {
 	vi := make([]tetra3d.VertexInfo, 0, 128*128)
 	for j := 0; j < h; j++ {
 		for i := 0; i < w; i++ {
-			elev := float64(v[j*w+i])
-			vert := tetra3d.NewVertex(float64(i)*0.1, elev*0.1, float64(j)*0.1, 0, 0)
-			vert.Colors = append(vert.Colors, tetra3d.NewColorFromHSV(0.35-(elev/40.0)*0.3, 0.5, 0.7))
+			elev := float64(v[(127-j)*w+i])
+			vert := tetra3d.NewVertex(float64(j)*0.1, elev*0.1, float64(i)*0.1, 0, 0)
+			if i == 0 {
+				vert.Colors = append(vert.Colors, tetra3d.NewColor(float32(csHighlight1.R)/255.0, float32(csHighlight1.G)/255.0, float32(csHighlight1.B)/255.0, float32(csHighlight1.A)/255.0))
+			} else if sides > 1 && j == 0 {
+				vert.Colors = append(vert.Colors, tetra3d.NewColor(float32(csHighlight2.R)/255.0, float32(csHighlight2.G)/255.0, float32(csHighlight2.B)/255.0, float32(csHighlight2.A)/255.0))
+			} else {
+				vert.Colors = append(vert.Colors, htoc(elev))
+			}
+
 			vert.ActiveColorChannel = 0
 			vi = append(vi, vert)
 		}
@@ -74,14 +89,6 @@ func NewSurfaceMesh(w, h int, v []float32) *tetra3d.Mesh {
 			j0 := j * w
 			j1 := (j + 1) * w
 
-			// Back face
-			tris = append(tris, j0+i)
-			tris = append(tris, j0+i+1)
-			tris = append(tris, j1+i)
-			tris = append(tris, j0+i+1)
-			tris = append(tris, j1+i+1)
-			tris = append(tris, j1+i)
-
 			// Front face
 			tris = append(tris, j0+i)
 			tris = append(tris, j1+i)
@@ -89,6 +96,14 @@ func NewSurfaceMesh(w, h int, v []float32) *tetra3d.Mesh {
 			tris = append(tris, j0+i+1)
 			tris = append(tris, j1+i)
 			tris = append(tris, j1+i+1)
+
+			// Back face
+			tris = append(tris, j0+i)
+			tris = append(tris, j0+i+1)
+			tris = append(tris, j1+i)
+			tris = append(tris, j0+i+1)
+			tris = append(tris, j1+i+1)
+			tris = append(tris, j1+i)
 
 			trisCounter += 4
 			if trisCounter >= 21845-4 {
@@ -127,7 +142,7 @@ func (g *Game) Init() {
 	//g.Camera.SetFar(128)
 	g.Camera.Move(-5, 10, -5)
 	g.Camera.Rotate(0, 1, 0, -2.3)
-	g.Camera.Rotate(1, 0, 0, -0.3)
+	g.Camera.Rotate(1, 0, 0, -0.4)
 	//g.Camera.Move(-100, 10, -100)
 
 	light := tetra3d.NewPointLight("light", 1, 1, 1, 1.5)
@@ -175,7 +190,7 @@ func (g *Game) Infer() {
 }
 
 func (g *Game) Update() error {
-	g.crossSection.Fill(color.White)
+	g.crossSection.Fill(neutralBright)
 
 	mx, my := ebiten.CursorPosition()
 	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
@@ -198,8 +213,17 @@ func (g *Game) Update() error {
 			float64(i*csWRatio),
 			float64((csHeight-v)*csHRatio),
 			float64(csWRatio),
+			float64(csHeight*csHRatio),
+			htoc(float64(v)).ToRGBA64(),
+		)
+
+		ebitenutil.DrawRect(
+			g.crossSection,
+			float64(i*csWRatio),
+			float64((csHeight-v)*csHRatio),
+			float64(csWRatio),
 			float64(csHRatio),
-			color.Black,
+			csHighlight1,
 		)
 
 	}
@@ -233,8 +257,19 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 	screen.DrawImage(g.Camera.ColorTexture(), nil)
 
+	csX := float64(screenWidth)/2.0 - (csWidth * csWRatio / 2.0)
+	csY := float64(screenHeight - csHeight*csHRatio - 10)
+	ebitenutil.DrawRect(
+		screen,
+		csX-1,
+		csY-1,
+		float64(csWidth*csWRatio)+2,
+		float64(csHeight*csHRatio)+2,
+		color.Black,
+	)
+
 	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(float64(screenWidth)/2.0-(csWidth*csWRatio/2.0), float64(screenHeight-csHeight*csHRatio-10))
+	op.GeoM.Translate(csX, csY)
 	screen.DrawImage(g.crossSection, op)
 }
 
@@ -250,7 +285,7 @@ func main() {
 		console:      js.Global().Get("console"),
 		document:     js.Global().Get("document"),
 	}
-	for i := 1; i < 128; i++ {
+	for i := 0; i < 128; i++ {
 		g.csValues[i] = 10.0
 	}
 	g.Init()
