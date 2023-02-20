@@ -7,7 +7,7 @@
 	<script>
 		document.load = async function (input) {
 			try {
-				document.session = await ort.InferenceSession.create('dist/11-128.onnx');
+				document.session = await ort.InferenceSession.create('dist/02-128.onnx');
 			} catch (e) {
 				document.write(`<p>failed to load ONNX model: ${e}.</p>`);
 				return []
@@ -38,7 +38,6 @@
 </head>
 
 <body>
-	<p>Downloading model and libraries...</p>
 </body>
 
 </html>

@@ -25,9 +25,9 @@ const (
 	screenWidth  = 640
 	screenHeight = 480
 	csWidth      = 128
-	csHeight     = 64
+	csHeight     = 32
 	csHRatio     = 2
-	csWRatio     = 4
+	csWRatio     = 2
 )
 
 var (
@@ -49,6 +49,67 @@ type Game struct {
 	needs3dRender bool
 }
 
+func NewSurfaceMesh(w, h int, v []float32) *tetra3d.Mesh {
+	//w := 128
+	//h := 128
+
+	mesh := tetra3d.NewMesh("Surface")
+
+	vi := make([]tetra3d.VertexInfo, 0, 128*128)
+	for j := 0; j < h; j++ {
+		for i := 0; i < w; i++ {
+			elev := float64(v[j*w+i])
+			vert := tetra3d.NewVertex(float64(i)*0.1, elev*0.1, float64(j)*0.1, 0, 0)
+			vert.Colors = append(vert.Colors, tetra3d.NewColorFromHSV(0.35-(elev/40.0)*0.3, 0.5, 0.7))
+			vert.ActiveColorChannel = 0
+			vi = append(vi, vert)
+		}
+	}
+	mesh.AddVertices(vi...)
+
+	trisCounter := 0
+	tris := make([]int, 0, (w-1)*(h-1)*12)
+	for j := 0; j < h-1; j++ {
+		for i := 0; i < w-1; i++ {
+			j0 := j * w
+			j1 := (j + 1) * w
+
+			// Back face
+			tris = append(tris, j0+i)
+			tris = append(tris, j0+i+1)
+			tris = append(tris, j1+i)
+			tris = append(tris, j0+i+1)
+			tris = append(tris, j1+i+1)
+			tris = append(tris, j1+i)
+
+			// Front face
+			tris = append(tris, j0+i)
+			tris = append(tris, j1+i)
+			tris = append(tris, j0+i+1)
+			tris = append(tris, j0+i+1)
+			tris = append(tris, j1+i)
+			tris = append(tris, j1+i+1)
+
+			trisCounter += 4
+			if trisCounter >= 21845-4 {
+				trisCounter = 0
+				mesh.AddMeshPart(tetra3d.NewMaterial("Surface"), tris...)
+				tris = make([]int, 0, (w-1)*(h-1)*12)
+			}
+		}
+	}
+
+	if len(tris) > 0 {
+		mesh.AddMeshPart(tetra3d.NewMaterial("Surface"), tris...)
+	}
+
+	mesh.UpdateBounds()
+	mesh.AutoNormal()
+
+	return mesh
+
+}
+
 func (g *Game) Init() {
 	library, err := tetra3d.LoadGLTFData(grassBlockBytes, nil)
 	if err != nil {
@@ -60,11 +121,28 @@ func (g *Game) Init() {
 	//camera := library.Scenes[0].Root.SearchTree().ByName("Camera").First().(*tetra3d.Camera)
 
 	g.Scene = tetra3d.NewScene("cubetest")
-	g.Scene.World.LightingOn = false
+	g.Scene.World.LightingOn = true
 
 	g.Camera = tetra3d.NewCamera(screenWidth, screenHeight-csHeight*csHRatio-10)
 	//g.Camera.SetFar(128)
-	g.Camera.Move(64, 30, 64)
+	g.Camera.Move(-5, 10, -5)
+	g.Camera.Rotate(0, 1, 0, -2.3)
+	g.Camera.Rotate(1, 0, 0, -0.3)
+	//g.Camera.Move(-100, 10, -100)
+
+	light := tetra3d.NewPointLight("light", 1, 1, 1, 1.5)
+	light.Distance = 100
+	light.Move(-5, 20, -10)
+	light.On = true
+	g.Scene.Root.AddChildren(light)
+
+	//cube := tetra3d.NewModel(tetra3d.NewCubeMesh(), "Cube")
+	//cube.Move(6, 0, 6)
+	//cube.Color.Set(0, 0.5, 1, 1)
+	//g.Scene.Root.AddChildren(cube)
+
+	surf := tetra3d.NewModel(NewSurfaceMesh(128, 128, g.tileValues), "Surface")
+	g.Scene.Root.AddChildren(surf)
 
 	asyncWait := make(chan interface{})
 	g.document.Call("load").Call("then", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
@@ -74,6 +152,8 @@ func (g *Game) Init() {
 	}))
 
 	<-asyncWait
+
+	g.needs3dRender = true
 }
 
 func (g *Game) Infer() {
@@ -99,11 +179,11 @@ func (g *Game) Update() error {
 
 	mx, my := ebiten.CursorPosition()
 	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		csx := mx - 10
+		csx := mx - ((screenWidth / 2) - (csWidth * csWRatio / 2))
 		csy := my - (screenHeight - csHeight*csHRatio - 10)
 		if csx >= 0 && csx < csWidth*csWRatio && csy >= 0 && csy < csHeight*csHRatio {
 			vx := int(math.Floor(float64(csx) / csWRatio))
-			vy := float64(64 - csy/csHRatio)
+			vy := float64(csHeight - csy/csHRatio)
 			if g.csValues[vx] != float32(vy) {
 				g.csValues[vx] = float32(vy)
 				g.changed = true
@@ -124,27 +204,19 @@ func (g *Game) Update() error {
 
 	}
 
-	if g.changed && time.Now().Sub(g.lastChanged) > 1*time.Second {
+	if g.changed && time.Now().Sub(g.lastChanged) > 200*time.Millisecond {
 		g.changed = false
 
-		g.Scene.Root.SearchTree().ForEach(func(node tetra3d.INode) bool {
+		g.Scene.Root.SearchTree().ByName("Surface").ForEach(func(node tetra3d.INode) bool {
 			g.Scene.Root.RemoveChildren(node)
 			return true
 		})
 
 		g.Infer()
 
-		for k := 0; k < 4; k++ {
-			c1 := g.Cube.Clone().(*tetra3d.Model)
-			g.Scene.Root.AddChildren(c1)
-			for j := 0; j < 4; j++ {
-				for i := 0; i < 128; i++ {
-					c2 := c1.Clone().(*tetra3d.Model)
-					c2.Move(float64(i), float64(g.tileValues[(32*k+j)*128+i]), float64(j))
-					c1.DynamicBatchAdd(c1.Mesh.MeshParts[0], c2)
-				}
-			}
-		}
+		surf := tetra3d.NewModel(NewSurfaceMesh(128, 128, g.tileValues), "Surface")
+		g.Scene.Root.AddChildren(surf)
+
 		g.needs3dRender = true
 	}
 
@@ -162,7 +234,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	screen.DrawImage(g.Camera.ColorTexture(), nil)
 
 	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(float64(10), float64(screenHeight-csHeight*csHRatio-10))
+	op.GeoM.Translate(float64(screenWidth)/2.0-(csWidth*csWRatio/2.0), float64(screenHeight-csHeight*csHRatio-10))
 	screen.DrawImage(g.crossSection, op)
 }
 
@@ -177,6 +249,9 @@ func main() {
 		tileValues:   make([]float32, 128*128),
 		console:      js.Global().Get("console"),
 		document:     js.Global().Get("document"),
+	}
+	for i := 1; i < 128; i++ {
+		g.csValues[i] = 10.0
 	}
 	g.Init()
 
