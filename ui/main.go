@@ -27,8 +27,8 @@ const (
 	screenWidth  = 640
 	screenHeight = 480
 	csWidth      = 128
-	csHeight     = 32
-	csHRatio     = 2
+	csHeight     = 50
+	csHRatio     = 1
 	csWRatio     = 2
 )
 
@@ -40,7 +40,7 @@ var (
 )
 
 func htoc(h float64) *tetra3d.Color {
-	return tetra3d.NewColorFromHSV(0.35-(h/40.0)*0.3, 0.5, 0.7)
+	return tetra3d.NewColorFromHSV(0.35-(h/60.0)*0.3, 0.5, 0.7)
 }
 
 type crossSection struct {
@@ -60,7 +60,7 @@ func newCrossSection(x, y float64, highlight color.Color) *crossSection {
 		y:         y,
 	}
 	for i := 0; i < 128; i++ {
-		cs.values[i] = 10.0
+		cs.values[i] = 1.0
 	}
 	cs.canvasPaint()
 	return cs
