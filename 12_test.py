@@ -17,7 +17,7 @@ torch.manual_seed(1)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 n=128
 size=128
-boundl = 128
+boundl = 256
 
 def plot_surface(ax, data, cmap, alpha):
     meshx, meshy = np.meshgrid(np.linspace(0, size, size), np.linspace(0, size, size))
@@ -136,6 +136,7 @@ print("test: %.2f" % (l))
 # 2 boundary loss: 46
 
 # onnx-ready 1 bound: 107
+# onnx-ready 2 bound: 46
 
 #%%
 

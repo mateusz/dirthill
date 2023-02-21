@@ -5,9 +5,11 @@
 	<script src="dist/wasm_exec.js"></script>
 	<script src="dist/ort.min.js"></script>
 	<script>
+		document.boundl = 256
+		document.modelName = '11-' + document.boundl
 		document.load = async function (input) {
 			try {
-				document.session = await ort.InferenceSession.create('dist/11-128.onnx');
+				document.session = await ort.InferenceSession.create('dist/' + document.modelName + '.onnx');
 			} catch (e) {
 				document.write(`<p>failed to load ONNX model: ${e}.</p>`);
 				return []
@@ -17,7 +19,7 @@
 		document.infer = async function (input) {
 			try {
 				const edge = Float32Array.from(JSON.parse(input));
-				const tEdge = new ort.Tensor('float32', edge, [1, 128]);
+				const tEdge = new ort.Tensor('float32', edge, [1, document.boundl]);
 
 				const feeds = { edge: tEdge }
 				const results = await document.session.run(feeds);

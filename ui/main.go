@@ -12,10 +12,12 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/text"
 
 	"syscall/js"
 
 	"github.com/solarlune/tetra3d"
+	"golang.org/x/image/font/basicfont"
 )
 
 //go:embed grassblock.gltf
@@ -28,25 +30,110 @@ const (
 	csHeight     = 32
 	csHRatio     = 2
 	csWRatio     = 2
-	sides        = 1
 )
 
 var (
 	neutralFill   = color.RGBA{60, 70, 80, 255}
 	neutralBright = color.RGBA{78, 90, 102, 255}
 	csHighlight1  = color.RGBA{251, 105, 80, 255}
-	csHighlight2  = color.RGBA{195, 119, 145, 255}
+	csHighlight2  = color.RGBA{47, 144, 212, 255}
 )
 
 func htoc(h float64) *tetra3d.Color {
 	return tetra3d.NewColorFromHSV(0.35-(h/40.0)*0.3, 0.5, 0.7)
 }
 
+type crossSection struct {
+	highlight color.Color
+	canvas    *ebiten.Image
+	values    []float32
+	x         float64
+	y         float64
+}
+
+func newCrossSection(x, y float64, highlight color.Color) *crossSection {
+	cs := &crossSection{
+		highlight: highlight,
+		canvas:    ebiten.NewImage(csWidth*csWRatio, csHeight*csHRatio),
+		values:    make([]float32, csWidth),
+		x:         x,
+		y:         y,
+	}
+	for i := 0; i < 128; i++ {
+		cs.values[i] = 10.0
+	}
+	cs.canvasPaint()
+	return cs
+}
+
+func (cs *crossSection) mouseEvent(mx, my int) bool {
+	changed := false
+	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		csx := mx - int(cs.x)
+		csy := my - int(cs.y)
+		if csx >= 0 && csx < csWidth*csWRatio && csy >= 0 && csy < csHeight*csHRatio {
+			vx := int(math.Floor(float64(csx) / csWRatio))
+			vy := float64(csHeight - csy/csHRatio)
+			if cs.values[vx] != float32(vy) {
+				cs.values[vx] = float32(vy)
+				changed = true
+			}
+		}
+	}
+
+	if changed {
+		cs.canvasPaint()
+	}
+
+	return changed
+}
+
+func (cs *crossSection) canvasPaint() {
+	cs.canvas.Fill(neutralBright)
+	for i, v := range cs.values {
+		ebitenutil.DrawRect(
+			cs.canvas,
+			float64(i*csWRatio),
+			float64((csHeight-v)*csHRatio),
+			float64(csWRatio),
+			float64(csHeight*csHRatio),
+			htoc(float64(v)).ToRGBA64(),
+		)
+
+		ebitenutil.DrawRect(
+			cs.canvas,
+			float64(i*csWRatio),
+			float64((csHeight-v)*csHRatio),
+			float64(csWRatio),
+			float64(csHRatio),
+			cs.highlight,
+		)
+
+	}
+}
+
+func (cs *crossSection) draw(screen *ebiten.Image) {
+	ebitenutil.DrawRect(
+		screen,
+		cs.x-1,
+		cs.y-1,
+		float64(csWidth*csWRatio)+2,
+		float64(csHeight*csHRatio)+2,
+		color.Black,
+	)
+
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(cs.x, cs.y)
+	screen.DrawImage(cs.canvas, op)
+}
+
 type Game struct {
+	sides         int
+	modelName     string
 	console       js.Value
 	document      js.Value
-	crossSection  *ebiten.Image
-	csValues      []float32
+	cs1           *crossSection
+	cs2           *crossSection
 	tileValues    []float32
 	Library       *tetra3d.Library
 	Scene         *tetra3d.Scene
@@ -57,20 +144,17 @@ type Game struct {
 	needs3dRender bool
 }
 
-func NewSurfaceMesh(w, h int, v []float32) *tetra3d.Mesh {
-	//w := 128
-	//h := 128
-
+func (g *Game) NewSurfaceMesh(w, h int) *tetra3d.Mesh {
 	mesh := tetra3d.NewMesh("Surface")
 
 	vi := make([]tetra3d.VertexInfo, 0, 128*128)
 	for j := 0; j < h; j++ {
 		for i := 0; i < w; i++ {
-			elev := float64(v[(127-j)*w+i])
+			elev := float64(g.tileValues[(127-j)*w+i])
 			vert := tetra3d.NewVertex(float64(j)*0.1, elev*0.1, float64(i)*0.1, 0, 0)
-			if i == 0 {
+			if i <= 1 {
 				vert.Colors = append(vert.Colors, tetra3d.NewColor(float32(csHighlight1.R)/255.0, float32(csHighlight1.G)/255.0, float32(csHighlight1.B)/255.0, float32(csHighlight1.A)/255.0))
-			} else if sides > 1 && j == 0 {
+			} else if g.sides > 1 && j <= 1 {
 				vert.Colors = append(vert.Colors, tetra3d.NewColor(float32(csHighlight2.R)/255.0, float32(csHighlight2.G)/255.0, float32(csHighlight2.B)/255.0, float32(csHighlight2.A)/255.0))
 			} else {
 				vert.Colors = append(vert.Colors, htoc(elev))
@@ -138,11 +222,11 @@ func (g *Game) Init() {
 	g.Scene = tetra3d.NewScene("cubetest")
 	g.Scene.World.LightingOn = true
 
-	g.Camera = tetra3d.NewCamera(screenWidth, screenHeight-csHeight*csHRatio-10)
+	g.Camera = tetra3d.NewCamera(screenWidth, screenHeight)
 	//g.Camera.SetFar(128)
 	g.Camera.Move(-5, 10, -5)
-	g.Camera.Rotate(0, 1, 0, -2.3)
-	g.Camera.Rotate(1, 0, 0, -0.4)
+	g.Camera.Rotate(0, 1, 0, -0.75*math.Pi)
+	g.Camera.Rotate(1, 0, 0, -0.5)
 	//g.Camera.Move(-100, 10, -100)
 
 	light := tetra3d.NewPointLight("light", 1, 1, 1, 1.5)
@@ -156,7 +240,7 @@ func (g *Game) Init() {
 	//cube.Color.Set(0, 0.5, 1, 1)
 	//g.Scene.Root.AddChildren(cube)
 
-	surf := tetra3d.NewModel(NewSurfaceMesh(128, 128, g.tileValues), "Surface")
+	surf := tetra3d.NewModel(g.NewSurfaceMesh(128, 128), "Surface")
 	g.Scene.Root.AddChildren(surf)
 
 	asyncWait := make(chan interface{})
@@ -172,7 +256,17 @@ func (g *Game) Init() {
 }
 
 func (g *Game) Infer() {
-	edge, err := json.Marshal(g.csValues)
+	var edge []byte
+	var err error
+	if g.sides == 1 {
+		edge, err = json.Marshal(g.cs1.values)
+	} else {
+		values := make([]float32, 0, 256)
+		values = append(values, g.cs1.values...)
+		values = append(values, g.cs2.values...)
+		edge, err = json.Marshal(values)
+	}
+
 	if err != nil {
 		g.console.Call("log", fmt.Sprintf("Failed to marshal data: %s", err))
 	}
@@ -190,42 +284,15 @@ func (g *Game) Infer() {
 }
 
 func (g *Game) Update() error {
-	g.crossSection.Fill(neutralBright)
-
 	mx, my := ebiten.CursorPosition()
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		csx := mx - ((screenWidth / 2) - (csWidth * csWRatio / 2))
-		csy := my - (screenHeight - csHeight*csHRatio - 10)
-		if csx >= 0 && csx < csWidth*csWRatio && csy >= 0 && csy < csHeight*csHRatio {
-			vx := int(math.Floor(float64(csx) / csWRatio))
-			vy := float64(csHeight - csy/csHRatio)
-			if g.csValues[vx] != float32(vy) {
-				g.csValues[vx] = float32(vy)
-				g.changed = true
-				g.lastChanged = time.Now()
-			}
-		}
+	if g.cs1.mouseEvent(mx, my) {
+		g.changed = true
+		g.lastChanged = time.Now()
+
 	}
-
-	for i, v := range g.csValues {
-		ebitenutil.DrawRect(
-			g.crossSection,
-			float64(i*csWRatio),
-			float64((csHeight-v)*csHRatio),
-			float64(csWRatio),
-			float64(csHeight*csHRatio),
-			htoc(float64(v)).ToRGBA64(),
-		)
-
-		ebitenutil.DrawRect(
-			g.crossSection,
-			float64(i*csWRatio),
-			float64((csHeight-v)*csHRatio),
-			float64(csWRatio),
-			float64(csHRatio),
-			csHighlight1,
-		)
-
+	if g.sides > 1 && g.cs2.mouseEvent(mx, my) {
+		g.changed = true
+		g.lastChanged = time.Now()
 	}
 
 	if g.changed && time.Now().Sub(g.lastChanged) > 200*time.Millisecond {
@@ -238,7 +305,7 @@ func (g *Game) Update() error {
 
 		g.Infer()
 
-		surf := tetra3d.NewModel(NewSurfaceMesh(128, 128, g.tileValues), "Surface")
+		surf := tetra3d.NewModel(g.NewSurfaceMesh(128, 128), "Surface")
 		g.Scene.Root.AddChildren(surf)
 
 		g.needs3dRender = true
@@ -257,20 +324,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 	screen.DrawImage(g.Camera.ColorTexture(), nil)
 
-	csX := float64(screenWidth)/2.0 - (csWidth * csWRatio / 2.0)
-	csY := float64(screenHeight - csHeight*csHRatio - 10)
-	ebitenutil.DrawRect(
-		screen,
-		csX-1,
-		csY-1,
-		float64(csWidth*csWRatio)+2,
-		float64(csHeight*csHRatio)+2,
-		color.Black,
-	)
+	g.cs1.draw(screen)
+	if g.sides > 1 {
+		g.cs2.draw(screen)
+	}
 
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(csX, csY)
-	screen.DrawImage(g.crossSection, op)
+	opt := &ebiten.DrawImageOptions{}
+	opt.GeoM.Translate(10, 23)
+	text.DrawWithOptions(screen, fmt.Sprintf("Inferring terrain from cross-sections\nby github.com/mateusz\nModel: %s", g.modelName), basicfont.Face7x13, opt)
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
@@ -279,15 +340,22 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 
 func main() {
 	g := &Game{
-		crossSection: ebiten.NewImage(csWidth*csWRatio, csHeight*csHRatio),
-		csValues:     make([]float32, csWidth),
-		tileValues:   make([]float32, 128*128),
-		console:      js.Global().Get("console"),
-		document:     js.Global().Get("document"),
+		cs1:        newCrossSection(10, float64(screenHeight-csHeight*csHRatio-10), csHighlight1),
+		cs2:        newCrossSection(screenWidth-csWidth*csWRatio-10, float64(screenHeight-csHeight*csHRatio-10), csHighlight2),
+		tileValues: make([]float32, 128*128),
+		console:    js.Global().Get("console"),
+		document:   js.Global().Get("document"),
 	}
-	for i := 0; i < 128; i++ {
-		g.csValues[i] = 10.0
+	boundl := g.document.Get("boundl").Int()
+	if boundl == 128 {
+		g.sides = 1
+	} else if boundl == 256 {
+		g.sides = 2
+	} else {
+		fmt.Errorf("Bad boundl '%d', should be 128 or 256", boundl)
 	}
+	g.modelName = g.document.Get("modelName").String()
+
 	g.Init()
 
 	ebiten.SetWindowSize(screenWidth, screenHeight)

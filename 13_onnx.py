@@ -40,3 +40,13 @@ output_names = [ "tile" ]
 torch.onnx.export(
     net, dummy_input, "ui/dist/11-128.onnx",
     verbose=True, input_names=input_names, output_names=output_names)
+
+net = torch.load('models/11-256').eval()
+
+dummy_input = torch.randn(1, 256, device="cuda")
+input_names = [ "edge" ]
+output_names = [ "tile" ]
+
+torch.onnx.export(
+    net, dummy_input, "ui/dist/11-256.onnx",
+    verbose=True, input_names=input_names, output_names=output_names)
