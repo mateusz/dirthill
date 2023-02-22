@@ -82,9 +82,12 @@ conv1 = nn.Sequential(
 
         nn.Linear(ch*32*2*int(boundl/128), 256),
         nn.ReLU(inplace=True),
+        # This prevents instability in UI usage (otherwise single value changes blow up the output!)
+        nn.Dropout(0.5),
 
         nn.Linear(256, chd*32*2*2),
         nn.ReLU(inplace=True),
+        nn.Dropout(0.5),
 
         nn.Unflatten(1, (chd*32, 2, 2)),
         

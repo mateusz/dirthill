@@ -163,7 +163,10 @@ with torch.no_grad():
     #out = net(torch.Tensor([input]).to(device)).cpu().squeeze(1)
     #show(target, out[0].numpy(), r=45)
 
-    input,target = tt[8300]
+    input,target = tt[5300]
     input = input[0:boundl]
     out = net(torch.Tensor([input]).to(device)).cpu().squeeze(1)
     show(target, out[0].numpy(), r=45)
+
+# This one is seemingly good in test, but is quite unstable when playig in the ui
+# Probably due to lack of dropout?
