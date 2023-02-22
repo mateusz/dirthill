@@ -81,13 +81,14 @@ class Net(nn.Module):
             nn.MaxPool1d(2),
 
             nn.Flatten(),
-
-            nn.Linear(ch*32*2*int(boundl/128), 256),
-            nn.ReLU(inplace=True),
         )
 
-        self.mu = nn.Linear(256, 256)
-        self.logvar = nn.Linear(256, 256)
+        self.mu1 = nn.Linear(ch*32*2*int(boundl/128), 256)
+        self.muR = nn.ReLU(inplace=True)
+        self.mu2 = nn.Linear(256, 256)
+        self.logvar1 = nn.Linear(ch*32*2*int(boundl/128), 256)
+        self.logvarR = nn.ReLU(inplace=True)
+        self.logvar2 = nn.Linear(256, 256)
 
         self.decoder = nn.Sequential(
             nn.Linear(256, chd*32*2*2),
@@ -125,7 +126,7 @@ class Net(nn.Module):
 
     def forward(self, x):
         v = self.encoder(x)
-        mu, logvar = self.mu(v), self.logvar(v)
+        mu, logvar = self.mu2(self.muR(self.mu1(v))), self.logvar2(self.logvarR(self.logvar1(v)))
         z = self.reparameterize(mu, logvar)
         return self.decoder(z), mu, logvar
 
@@ -136,9 +137,13 @@ net(inp)[2].shape
 
 #%%
 
-net = conv1.to(device)
+net = net.to(device)
 opt = optim.Adam(net.parameters())
-lossfn = nn.MSELoss()
+mse = nn.MSELoss()
+
+def vaeloss(criterion, mu, logvar):
+    kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    return kld + criterion
 
 min_val_loss = 9999999999.0
 early_stop_counter = 0
@@ -154,9 +159,10 @@ for epoch in range(999):  # loop over the dataset multiple times
         opt.zero_grad()
 
         # forward + backward + optimize
-        outputs = net(inputs.to(device))
+        outputs, mu, logvar = net(inputs.to(device))
 
-        loss = lossfn(outputs, targets.unsqueeze(1).to(device))
+        criterion_loss = mse(outputs, targets.unsqueeze(1).to(device))
+        loss = vaeloss(criterion_loss, mu, logvar)
         loss.backward()
         opt.step()
 
@@ -172,8 +178,9 @@ for epoch in range(999):  # loop over the dataset multiple times
         for i,data in enumerate(val, 0):
             inputs, targets = data
             inputs = inputs[:,0:boundl]
-            outputs = net(inputs.to(device))
-            loss = lossfn(outputs, targets.unsqueeze(1).to(device))
+            outputs, mu, logvar = net(inputs.to(device))
+            criterion_loss = mse(outputs, targets.unsqueeze(1).to(device))
+            loss = vaeloss(criterion_loss, mu, logvar)
             running_loss += loss.item()
 
     vl = running_loss/len(val)
@@ -183,7 +190,7 @@ for epoch in range(999):  # loop over the dataset multiple times
         min_val_loss = vl
         early_stop_counter = 0
         print('saving...')
-        torch.save(net, 'models/06-%s' % boundl )
+        torch.save(net, 'models/14-%s' % boundl )
     else:
         early_stop_counter += 1
 
