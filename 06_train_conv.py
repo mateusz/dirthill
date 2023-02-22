@@ -1,6 +1,6 @@
 #%%
 
-import terrain_set
+import terrain_set2
 from torch.utils.data import DataLoader
 import numpy as np
 import pandas as pd
@@ -15,60 +15,103 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #%%
 
 n=128
-ts = terrain_set.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
-    size=n, stride=8, local_norm=True, full_boundary=True, ordered_boundary=True, boundary_overflow=3)
-t,v = torch.utils.data.random_split(ts, [0.95, 0.05])
-train = DataLoader(t, batch_size=1024, shuffle=True,
+boundl=256
+ts = terrain_set2.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
+    size=n, stride=8)
+t,v = torch.utils.data.random_split(ts, [0.90, 0.10])
+train = DataLoader(t, batch_size=256, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
-val = DataLoader(v, batch_size=1024, shuffle=True,
+val = DataLoader(v, batch_size=256, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
 
 #%%
 
-class MultiDimLinear(torch.nn.Linear):
-    def __init__(self, in_features, out_shape, **kwargs):
-        self.out_shape = out_shape
-        out_features = np.prod(out_shape)
-        super().__init__(in_features, out_features, **kwargs)
+class View(nn.Module):
+    def __init__(self, dim,  shape):
+        super(View, self).__init__()
+        self.dim = dim
+        self.shape = shape
 
-    def forward(self, x):
-        out = super().forward(x)
-        return out.reshape((len(x), *self.out_shape))
+    def forward(self, input):
+        new_shape = list(input.shape)[:self.dim] + list(self.shape) + list(input.shape)[self.dim+1:]
+        return input.view(*new_shape)
+
+
+# https://github.com/pytorch/pytorch/issues/49538
+nn.Unflatten = View
 
 # Todo:
 # - maybe just go back to convolving and then using linear (to not muddle the results with upscaler issues)
 # - try bigger kernel (8 didnt change anything), but maybe 32 or something?
-conv1 = torch.nn.Sequential(
-        torch.nn.Conv1d(1, 32, 4, stride=4),
-        torch.nn.ReLU(),
-        torch.nn.Dropout(0.01),
+ch=16
+chd=16
+conv1 = nn.Sequential(
+        nn.Conv1d(1, ch, 3, padding=1),
+        nn.BatchNorm1d(ch),
+        nn.ReLU(inplace=True),
+        nn.MaxPool1d(2),
 
-        torch.nn.Conv1d(32, 32, 4, stride=4, padding=2),
-        torch.nn.ReLU(),
-        torch.nn.Dropout(0.01),
+        nn.Conv1d(ch, ch*2, 3, padding=1),
+        nn.BatchNorm1d(ch*2),
+        nn.ReLU(inplace=True),
+        nn.MaxPool1d(2),
 
-        torch.nn.Flatten(),
+        nn.Conv1d(ch*2, ch*4, 3, padding=1),
+        nn.BatchNorm1d(ch*4),
+        nn.ReLU(inplace=True),
+        nn.MaxPool1d(2),
 
-        torch.nn.Linear(1024, 4096),
-        torch.nn.ReLU(),
-        torch.nn.Dropout(0.01),
+        nn.Conv1d(ch*4, ch*8, 3, padding=1),
+        nn.BatchNorm1d(ch*8),
+        nn.ReLU(inplace=True),
+        nn.MaxPool1d(2),
 
-        MultiDimLinear(4096, (16,16,16)),
-        torch.nn.ReLU(),
-        torch.nn.Dropout(0.01),
+        nn.Conv1d(ch*8, ch*16, 3, padding=1),
+        nn.BatchNorm1d(ch*16),
+        nn.ReLU(inplace=True),
+        nn.MaxPool1d(2),
 
-        torch.nn.ConvTranspose2d(16,16,4,stride=2,padding=1),
-        torch.nn.ReLU(),
-        torch.nn.Dropout(0.01),
+        nn.Conv1d(ch*16, ch*32, 3, padding=1),
+        nn.BatchNorm1d(ch*32),
+        nn.ReLU(inplace=True),
+        nn.MaxPool1d(2),
 
-        torch.nn.ConvTranspose2d(16,1,4,stride=4,padding=1),
-        torch.nn.ReLU(),
-        torch.nn.Dropout(0.01),
+        nn.Flatten(),
 
-        torch.nn.Flatten(),
+        nn.Linear(ch*32*2*int(boundl/128), 256),
+        nn.ReLU(inplace=True),
+
+        nn.Linear(256, chd*32*2*2),
+        nn.ReLU(inplace=True),
+
+        nn.Unflatten(1, (chd*32, 2, 2)),
+        
+        nn.ConvTranspose2d(chd*32, chd*16, 3, stride=2, padding=1, output_padding=1),
+        nn.BatchNorm2d(chd*16),
+        nn.ReLU(inplace=True),
+
+        nn.ConvTranspose2d(chd*16, chd*8, 3, stride=2, padding=1, output_padding=1),
+        nn.BatchNorm2d(chd*8),
+        nn.ReLU(inplace=True),
+        
+        nn.ConvTranspose2d(chd*8, chd*4, 3, stride=2, padding=1, output_padding=1),
+        nn.BatchNorm2d(chd*4),
+        nn.ReLU(inplace=True),
+
+        nn.ConvTranspose2d(chd*4, chd*2, 3, stride=2, padding=1, output_padding=1),
+        nn.BatchNorm2d(chd*2),
+        nn.ReLU(inplace=True),
+
+        nn.ConvTranspose2d(chd*2, chd, 3, stride=2, padding=1, output_padding=1),
+        nn.BatchNorm2d(chd),
+        nn.ReLU(inplace=True),
+
+        nn.ConvTranspose2d(chd, 1, 3, stride=2, padding=1, output_padding=1),
+
 )
 
-conv1(torch.Tensor([ts[0][0], ts[1][0]]).unsqueeze(1)).shape
+inp = torch.Tensor([ts[0][0][:boundl], ts[1][0][:boundl]]).unsqueeze(1)
+conv1(inp).shape
 
 #%%
 
@@ -84,6 +127,7 @@ for epoch in range(999):  # loop over the dataset multiple times
 
     for i, data in enumerate(train, 0):
         inputs, targets = data
+        inputs = inputs[:,0:boundl]
 
         # zero the parameter gradients
         opt.zero_grad()
@@ -91,7 +135,7 @@ for epoch in range(999):  # loop over the dataset multiple times
         # forward + backward + optimize
         outputs = net(inputs.unsqueeze(1).to(device))
 
-        loss = lossfn(outputs, targets.to(device))
+        loss = lossfn(outputs, targets.unsqueeze(1).to(device))
         loss.backward()
         opt.step()
 
@@ -106,8 +150,9 @@ for epoch in range(999):  # loop over the dataset multiple times
     with torch.no_grad():
         for i,data in enumerate(val, 0):
             inputs, targets = data
+            inputs = inputs[:,0:boundl]
             outputs = net(inputs.unsqueeze(1).to(device))
-            loss = lossfn(outputs, targets.to(device))
+            loss = lossfn(outputs, targets.unsqueeze(1).to(device))
             running_loss += loss.item()
 
     vl = running_loss/len(val)
@@ -117,9 +162,11 @@ for epoch in range(999):  # loop over the dataset multiple times
         min_val_loss = vl
         early_stop_counter = 0
         print('saving...')
-        torch.save(net, 'models/06')
+        torch.save(net, 'models/06-%s' % boundl )
     else:
         early_stop_counter += 1
 
     if early_stop_counter>=3:
         break
+
+# 2-bound val: 8
