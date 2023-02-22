@@ -125,7 +125,7 @@ with torch.no_grad():
     for i,data in enumerate(test, 0):
         inputs, targets = data
         inputs = inputs[:,0:boundl]
-        outputs = net(inputs.unsqueeze(1).to(device))
+        outputs = net(inputs.to(device))
         loss = lossfn(outputs, targets.unsqueeze(1).to(device))
         running_loss += loss.item()
 
@@ -163,7 +163,7 @@ with torch.no_grad():
     #out = net(torch.Tensor([input]).to(device)).cpu().squeeze(1)
     #show(target, out[0].numpy(), r=45)
 
-    input,target = tt[2500]
+    input,target = tt[8300]
     input = input[0:boundl]
-    out = net(torch.Tensor([input]).unsqueeze(1).to(device)).cpu().squeeze(1)
+    out = net(torch.Tensor([input]).to(device)).cpu().squeeze(1)
     show(target, out[0].numpy(), r=45)

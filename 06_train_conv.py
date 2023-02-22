@@ -46,6 +46,8 @@ nn.Unflatten = View
 ch=16
 chd=16
 conv1 = nn.Sequential(
+        nn.Unflatten(1, (1, boundl)),
+
         nn.Conv1d(1, ch, 3, padding=1),
         nn.BatchNorm1d(ch),
         nn.ReLU(inplace=True),
@@ -110,7 +112,7 @@ conv1 = nn.Sequential(
 
 )
 
-inp = torch.Tensor([ts[0][0][:boundl], ts[1][0][:boundl]]).unsqueeze(1)
+inp = torch.Tensor([ts[0][0][:boundl], ts[1][0][:boundl]])
 conv1(inp).shape
 
 #%%
@@ -133,7 +135,7 @@ for epoch in range(999):  # loop over the dataset multiple times
         opt.zero_grad()
 
         # forward + backward + optimize
-        outputs = net(inputs.unsqueeze(1).to(device))
+        outputs = net(inputs.to(device))
 
         loss = lossfn(outputs, targets.unsqueeze(1).to(device))
         loss.backward()
@@ -151,7 +153,7 @@ for epoch in range(999):  # loop over the dataset multiple times
         for i,data in enumerate(val, 0):
             inputs, targets = data
             inputs = inputs[:,0:boundl]
-            outputs = net(inputs.unsqueeze(1).to(device))
+            outputs = net(inputs.to(device))
             loss = lossfn(outputs, targets.unsqueeze(1).to(device))
             running_loss += loss.item()
 

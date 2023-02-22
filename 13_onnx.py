@@ -52,7 +52,8 @@ torch.onnx.export(
 
 #%%
 
-net = torch.load('models/06-256').eval()[1]
+net = torch.load('models/06-256').eval()
+print(net)
 
 dummy_input = torch.randn(1, 256, device="cuda")
 input_names = [ "edge" ]
