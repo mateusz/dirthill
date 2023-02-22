@@ -133,7 +133,7 @@ l = running_loss/len(test)
 print("test: %.2f" % (l))
 
 # onnx-ready 1 bound: 
-# onnx-ready 2 bound: 45
+# onnx-ready 2 bound: 54 (dropout=0.5)
 
 #%%
 
@@ -163,7 +163,7 @@ with torch.no_grad():
     #out = net(torch.Tensor([input]).to(device)).cpu().squeeze(1)
     #show(target, out[0].numpy(), r=45)
 
-    input,target = tt[5300]
+    input,target = tt[2500]
     input = input[0:boundl]
     out = net(torch.Tensor([input]).to(device)).cpu().squeeze(1)
     show(target, out[0].numpy(), r=45)
