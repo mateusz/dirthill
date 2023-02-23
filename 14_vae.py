@@ -19,9 +19,9 @@ boundl=256
 ts = terrain_set2.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
     size=n, stride=8)
 t,v = torch.utils.data.random_split(ts, [0.90, 0.10])
-train = DataLoader(t, batch_size=256, shuffle=True,
+train = DataLoader(t, batch_size=512, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
-val = DataLoader(v, batch_size=256, shuffle=True,
+val = DataLoader(v, batch_size=512, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
 
 #%%
@@ -83,15 +83,16 @@ class Net(nn.Module):
             nn.Flatten(),
         )
 
-        self.mu1 = nn.Linear(ch*32*2*int(boundl/128), 256)
+        latentl = 256
+        self.mu1 = nn.Linear(ch*32*2*int(boundl/128), latentl)
         self.muR = nn.ReLU(inplace=True)
-        self.mu2 = nn.Linear(256, 256)
-        self.logvar1 = nn.Linear(ch*32*2*int(boundl/128), 256)
+        self.mu2 = nn.Linear(latentl, latentl)
+        self.logvar1 = nn.Linear(ch*32*2*int(boundl/128), latentl)
         self.logvarR = nn.ReLU(inplace=True)
-        self.logvar2 = nn.Linear(256, 256)
+        self.logvar2 = nn.Linear(latentl, latentl)
 
         self.decoder = nn.Sequential(
-            nn.Linear(256, chd*32*2*2),
+            nn.Linear(latentl, chd*32*2*2),
             nn.ReLU(inplace=True),
 
             nn.Unflatten(1, (chd*32, 2, 2)),
@@ -128,7 +129,7 @@ class Net(nn.Module):
         v = self.encoder(x)
         mu, logvar = self.mu2(self.muR(self.mu1(v))), self.logvar2(self.logvarR(self.logvar1(v)))
         z = self.reparameterize(mu, logvar)
-        return self.decoder(z), mu, logvar
+        return self.decoder(z), mu, logvar, z
 
 net = Net()
 inp = torch.Tensor([ts[0][0][:boundl], ts[1][0][:boundl]])
@@ -141,9 +142,18 @@ net = net.to(device)
 opt = optim.Adam(net.parameters())
 mse = nn.MSELoss()
 
-def vaeloss(criterion, mu, logvar):
-    kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    return kld + criterion
+def kld(mu, logvar):
+    return -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+
+def vaeloss(epoch, criterion, kld):
+    if epoch==0:
+        kld_weight = 0
+    elif epoch==1:
+        kld_weight = 0.0001
+    else:
+        kld_weight = 0.001
+
+    return kld_weight*kld + criterion
 
 min_val_loss = 9999999999.0
 early_stop_counter = 0
@@ -159,32 +169,43 @@ for epoch in range(999):  # loop over the dataset multiple times
         opt.zero_grad()
 
         # forward + backward + optimize
-        outputs, mu, logvar = net(inputs.to(device))
+        outputs, mu, logvar, z = net(inputs.to(device))
 
         criterion_loss = mse(outputs, targets.unsqueeze(1).to(device))
-        loss = vaeloss(criterion_loss, mu, logvar)
+        kld_loss = kld(mu, logvar)
+        loss = vaeloss(epoch, criterion_loss, kld_loss)
         loss.backward()
         opt.step()
 
         # print statistics
         running_loss += loss.item()
+        running_kld += kld_loss.item()
+        running_criterion += criterion_loss.item()
         if i % 10 == 9:
-            print("train: %.2f" % (running_loss/10.0))
+            print("train: l=%.3f, crit=%.3f, kld=%.3f" % (running_loss/10.0, running_criterion/10.0, kld_loss/10.0))
             running_loss = 0.0
+            running_criterion = 0.0
+            running_kld = 0.0
 
     running_loss = 0.0
+    running_criterion = 0.0
+    running_kld = 0.0
     net.eval()
     with torch.no_grad():
         for i,data in enumerate(val, 0):
             inputs, targets = data
             inputs = inputs[:,0:boundl]
-            outputs, mu, logvar = net(inputs.to(device))
+            outputs, mu, logvar, z = net(inputs.to(device))
             criterion_loss = mse(outputs, targets.unsqueeze(1).to(device))
-            loss = vaeloss(criterion_loss, mu, logvar)
+            kld_loss = kld(mu, logvar)
+            loss = vaeloss(epoch, criterion_loss, kld_loss)
+
+            running_criterion += criterion_loss.item()
+            running_kld += kld_loss.item()
             running_loss += loss.item()
 
     vl = running_loss/len(val)
-    print("val: %.2f" % (vl))
+    print("val: l=%.3f, crit=%.3f, kld=%.3f" % (vl, running_criterion/len(val), kld_loss/len(val)))
 
     if vl<min_val_loss:
         min_val_loss = vl
@@ -197,4 +218,15 @@ for epoch in range(999):  # loop over the dataset multiple times
     if early_stop_counter>=3:
         break
 
-# 2-bound val: 8
+# lv=256, 2-bound val: 8
+
+#%%
+
+input,target = ts[1000]
+input = input[0:boundl]
+out,mu,logvar,z = net(torch.Tensor([input]).to(device))
+
+print("out    %.3f	%.3f	%.3f" % (torch.min(out),	torch.mean(out),	torch.max(out)))
+print("mu     %.3f	%.3f	%.3f" % (torch.min(mu),	torch.mean(mu),	torch.max(mu)))
+print("var    %.3f	%.3f	%.3f" % (torch.min(logvar.exp()),	torch.mean(logvar.exp()),	torch.max(logvar.exp())))
+print("z      %.3f	%.3f	%.3f" % (torch.min(z),	torch.mean(z),	torch.max(z)))

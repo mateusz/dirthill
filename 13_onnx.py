@@ -65,6 +65,7 @@ torch.onnx.export(
 
 #%%
 
+boundl=256
 class Net(nn.Module):
     def __init__(self):
         super().__init__()
@@ -108,15 +109,16 @@ class Net(nn.Module):
             nn.Flatten(),
         )
 
-        self.mu1 = nn.Linear(ch*32*2*int(boundl/128), 256)
+        latentl = 256
+        self.mu1 = nn.Linear(ch*32*2*int(boundl/128), latentl)
         self.muR = nn.ReLU(inplace=True)
-        self.mu2 = nn.Linear(256, 256)
-        self.logvar1 = nn.Linear(ch*32*2*int(boundl/128), 256)
+        self.mu2 = nn.Linear(latentl, latentl)
+        self.logvar1 = nn.Linear(ch*32*2*int(boundl/128), latentl)
         self.logvarR = nn.ReLU(inplace=True)
-        self.logvar2 = nn.Linear(256, 256)
+        self.logvar2 = nn.Linear(latentl, latentl)
 
         self.decoder = nn.Sequential(
-            nn.Linear(256, chd*32*2*2),
+            nn.Linear(latentl, chd*32*2*2),
             nn.ReLU(inplace=True),
 
             nn.Unflatten(1, (chd*32, 2, 2)),
@@ -153,7 +155,7 @@ class Net(nn.Module):
         v = self.encoder(x)
         mu, logvar = self.mu2(self.muR(self.mu1(v))), self.logvar2(self.logvarR(self.logvar1(v)))
         z = self.reparameterize(mu, logvar)
-        return self.decoder(z), mu, logvar
+        return self.decoder(z), mu, logvar, z
 
 net = torch.load('models/14-256').eval()
 print(net)

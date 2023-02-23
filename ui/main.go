@@ -255,6 +255,19 @@ func (g *Game) Init() {
 	g.needs3dRender = true
 }
 
+func (g *Game) Interp() {
+	if g.sides == 1 {
+		g.console.Call("log", "Cannot interpolate 1 edge")
+		return
+	}
+
+	for j := 0; j < 128; j++ {
+		for i := 0; i < 128; i++ {
+			g.tileValues[j*128+i] = (g.cs1.values[j] * g.cs2.values[i]) / 60.0
+		}
+	}
+}
+
 func (g *Game) Infer() {
 	var edge []byte
 	var err error
