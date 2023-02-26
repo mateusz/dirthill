@@ -15,7 +15,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #%%
 
 n=128
-boundl=128
+boundl=256
 ts = terrain_set2.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
     size=n, stride=8)
 t,v = torch.utils.data.random_split(ts, [0.90, 0.10])
@@ -40,7 +40,7 @@ class View(nn.Module):
 # https://github.com/pytorch/pytorch/issues/49538
 nn.Unflatten = View
 
-class Net(nn.Module):
+class VaeFull(nn.Module):
     def __init__(self):
         super().__init__()
 
@@ -48,37 +48,35 @@ class Net(nn.Module):
         chd=16
 
         self.encoder = nn.Sequential(
-            nn.Unflatten(1, (1, boundl)),
-
-            nn.Conv1d(1, ch, 3, padding=1),
-            nn.BatchNorm1d(ch),
+            nn.Conv2d(1, ch, 3, padding=1),
+            nn.BatchNorm2d(ch),
             nn.ReLU(inplace=True),
-            nn.MaxPool1d(2),
+            nn.MaxPool2d(2),
 
-            nn.Conv1d(ch, ch*2, 3, padding=1),
-            nn.BatchNorm1d(ch*2),
+            nn.Conv2d(ch, ch*2, 3, padding=1),
+            nn.BatchNorm2d(ch*2),
             nn.ReLU(inplace=True),
-            nn.MaxPool1d(2),
+            nn.MaxPool2d(2),
 
-            nn.Conv1d(ch*2, ch*4, 3, padding=1),
-            nn.BatchNorm1d(ch*4),
+            nn.Conv2d(ch*2, ch*4, 3, padding=1),
+            nn.BatchNorm2d(ch*4),
             nn.ReLU(inplace=True),
-            nn.MaxPool1d(2),
+            nn.MaxPool2d(2),
 
-            nn.Conv1d(ch*4, ch*8, 3, padding=1),
-            nn.BatchNorm1d(ch*8),
+            nn.Conv2d(ch*4, ch*8, 3, padding=1),
+            nn.BatchNorm2d(ch*8),
             nn.ReLU(inplace=True),
-            nn.MaxPool1d(2),
+            nn.MaxPool2d(2),
 
-            nn.Conv1d(ch*8, ch*16, 3, padding=1),
-            nn.BatchNorm1d(ch*16),
+            nn.Conv2d(ch*8, ch*16, 3, padding=1),
+            nn.BatchNorm2d(ch*16),
             nn.ReLU(inplace=True),
-            nn.MaxPool1d(2),
+            nn.MaxPool2d(2),
 
-            nn.Conv1d(ch*16, ch*32, 3, padding=1),
-            nn.BatchNorm1d(ch*32),
+            nn.Conv2d(ch*16, ch*32, 3, padding=1),
+            nn.BatchNorm2d(ch*32),
             nn.ReLU(inplace=True),
-            nn.MaxPool1d(2),
+            nn.MaxPool2d(2),
 
             nn.Flatten(),
         )
@@ -131,8 +129,8 @@ class Net(nn.Module):
         z = self.reparameterize(mu, logvar)
         return self.decoder(z), mu, logvar, z
 
-net = Net()
-inp = torch.Tensor([ts[0][0][:boundl], ts[1][0][:boundl]])
+net = VaeFull()
+inp = torch.Tensor([ts[0][1], ts[1][1]]).unsqueeze(1)
 print(inp.shape)
 net(inp)[2].shape
 
@@ -145,7 +143,7 @@ mse = nn.MSELoss()
 def kld(mu, logvar):
     return torch.mean(-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1), dim=0)
 
-def vaeloss(epoch, criterion, kld, annealing=[0.0,0.5,1.0]):#[0.0, 0.0001, 0.001]):
+def vaeloss(epoch, criterion, kld, annealing=[0.0,0.5,1.0]):
     if epoch<len(annealing)-1:
         kld_weight = annealing[epoch]
     else:
@@ -169,7 +167,7 @@ for epoch in range(999):  # loop over the dataset multiple times
         opt.zero_grad()
 
         # forward + backward + optimize
-        outputs, mu, logvar, z = net(inputs.to(device))
+        outputs, mu, logvar, z = net(targets.unsqueeze(1).to(device))
 
         criterion_loss = mse(outputs, targets.unsqueeze(1).to(device))
         kld_loss = kld(mu, logvar)
@@ -195,7 +193,8 @@ for epoch in range(999):  # loop over the dataset multiple times
         for i,data in enumerate(val, 0):
             inputs, targets = data
             inputs = inputs[:,0:boundl]
-            outputs, mu, logvar, z = net(inputs.to(device))
+
+            outputs, mu, logvar, z = net(targets.unsqueeze(1).to(device))
             criterion_loss = mse(outputs, targets.unsqueeze(1).to(device))
             kld_loss = kld(mu, logvar)
             loss = vaeloss(epoch, criterion_loss, kld_loss)
@@ -211,7 +210,7 @@ for epoch in range(999):  # loop over the dataset multiple times
         min_val_loss = vl
         early_stop_counter = 0
         print('saving...')
-        torch.save(net, 'models/14-%s' % boundl )
+        torch.save(net, 'models/15-%s' % boundl )
     else:
         early_stop_counter += 1
 
@@ -224,7 +223,7 @@ for epoch in range(999):  # loop over the dataset multiple times
 
 input,target = ts[1000]
 input = input[0:boundl]
-out,mu,logvar,z = net(torch.Tensor([input]).to(device))
+out,mu,logvar,z = net(torch.Tensor([target]).unsqueeze(1).to(device))
 
 print("out    %.3f	%.3f	%.3f" % (torch.min(out),	torch.mean(out),	torch.max(out)))
 print("mu     %.3f	%.3f	%.3f" % (torch.min(mu),	torch.mean(mu),	torch.max(mu)))

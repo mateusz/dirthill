@@ -28,3 +28,4 @@ dependencies:
       - pygbag
       - pygame
       - onnx
+      - seaborn

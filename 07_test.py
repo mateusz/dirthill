@@ -88,6 +88,7 @@ def show(target, out, r=35):
 
     plt.show()
 
+
 #%%
 
 ts = terrain_set2.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',

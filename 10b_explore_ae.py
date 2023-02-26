@@ -14,6 +14,8 @@ from matplotlib.colors import LightSource
 from matplotlib import cm
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+import seaborn as sns
+from matplotlib.colors import SymLogNorm
 
 torch.manual_seed(1)
 
@@ -186,3 +188,25 @@ with torch.no_grad():
     wiped[0::res,0::res] = target[0::res,0::res]
     out = net(torch.Tensor([wiped]).unsqueeze(1).to(device)).cpu().squeeze(1)
     show(wiped, out[0].numpy(), r=45)
+
+#%%
+
+df = pd.read_parquet('data/ea-embeds.parquet').sample(n=256)
+p = np.vstack(df['v'].to_numpy())
+
+#%%
+
+tsne = TSNE(n_components=2)
+t = tsne.fit_transform(p)
+
+tr = t.reshape((2,len(t)))
+plt.scatter(tr[0], tr[1], cmap='hot')
+plt.show()
+
+#%%
+_,ax = plt.subplots(figsize=(10,10))
+ax = sns.heatmap(np.vstack(p), linewidth=0.0, cmap=sns.color_palette("dark:salmon", as_cmap=True))#, norm=SymLogNorm(10.0))
+plt.ylabel('samples')
+plt.xlabel('latent channels')
+plt.title('AE latent space')
+plt.show()
