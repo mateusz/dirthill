@@ -60,7 +60,7 @@ func newCrossSection(x, y float64, highlight color.Color) *crossSection {
 		y:         y,
 	}
 	for i := 0; i < 128; i++ {
-		cs.values[i] = 1.0
+		cs.values[i] = csHeight / 2.0
 	}
 	cs.canvasPaint()
 	return cs

@@ -15,13 +15,17 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #%%
 
 n=128
-boundl=128
+boundl=256
+rescale=4
+mname='14-%d-%d' % (boundl, rescale)
+
+batch=256//rescale
 ts = terrain_set2.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
-    size=n, stride=8)
+    size=n, stride=8, rescale=rescale)
 t,v = torch.utils.data.random_split(ts, [0.90, 0.10])
-train = DataLoader(t, batch_size=512, shuffle=True,
+train = DataLoader(t, batch_size=batch, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
-val = DataLoader(v, batch_size=512, shuffle=True,
+val = DataLoader(v, batch_size=batch, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
 
 #%%
@@ -83,7 +87,7 @@ class Net(nn.Module):
             nn.Flatten(),
         )
 
-        latentl = 256
+        latentl = 2048
         self.mu1 = nn.Linear(ch*32*2*int(boundl/128), latentl)
         self.muR = nn.ReLU(inplace=True)
         self.mu2 = nn.Linear(latentl, latentl)
@@ -145,7 +149,7 @@ mse = nn.MSELoss()
 def kld(mu, logvar):
     return torch.mean(-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1), dim=0)
 
-def vaeloss(epoch, criterion, kld, annealing=[0.0,0.5,1.0]):#[0.0, 0.0001, 0.001]):
+def vaeloss(epoch, criterion, kld, annealing=[0.000001, 0.00001, 0.0001]):#[0.0, 0.0001, 0.001]):
     if epoch<len(annealing)-1:
         kld_weight = annealing[epoch]
     else:
@@ -182,7 +186,7 @@ for epoch in range(999):  # loop over the dataset multiple times
         running_kld += kld_loss.item()
         running_criterion += criterion_loss.item()
         if i % 10 == 9:
-            print("train: l=%.3f, crit=%.3f, kld=%.3f" % (running_loss/10.0, running_criterion/10.0, kld_loss/10.0))
+            print("train: l=%.4f, crit=%.4f, kld=%.4f" % (running_loss/10.0, running_criterion/10.0, kld_loss/10.0))
             running_loss = 0.0
             running_criterion = 0.0
             running_kld = 0.0
@@ -205,13 +209,13 @@ for epoch in range(999):  # loop over the dataset multiple times
             running_loss += loss.item()
 
     vl = running_loss/len(val)
-    print("val: l=%.3f, crit=%.3f, kld=%.3f" % (vl, running_criterion/len(val), kld_loss/len(val)))
+    print("val: l=%.4f, crit=%.4f, kld=%.4f" % (vl, running_criterion/len(val), kld_loss/len(val)))
 
     if vl<min_val_loss:
         min_val_loss = vl
         early_stop_counter = 0
         print('saving...')
-        torch.save(net, 'models/14-%s' % boundl )
+        torch.save(net, 'models/%s' % (mname) )
     else:
         early_stop_counter += 1
 
@@ -220,9 +224,19 @@ for epoch in range(999):  # loop over the dataset multiple times
 
 # lv=256, 2-bound val: 8
 
+net = torch.load('models/%s' % (mname)).eval()
+print(net)
+
+dummy_input = torch.randn(1, boundl, device="cuda")
+input_names = [ "edge" ]
+output_names = [ "tile" ]
+
+torch.onnx.export(
+    net, dummy_input, "ui/dist/%s.onnx" % (mname),
+    verbose=True, input_names=input_names, output_names=output_names)
 #%%
 
-input,target = ts[1000]
+input,target = ts[0]
 input = input[0:boundl]
 out,mu,logvar,z = net(torch.Tensor([input]).to(device))
 
@@ -230,3 +244,32 @@ print("out    %.3f	%.3f	%.3f" % (torch.min(out),	torch.mean(out),	torch.max(out)
 print("mu     %.3f	%.3f	%.3f" % (torch.min(mu),	torch.mean(mu),	torch.max(mu)))
 print("var    %.3f	%.3f	%.3f" % (torch.min(logvar.exp()),	torch.mean(logvar.exp()),	torch.max(logvar.exp())))
 print("z      %.3f	%.3f	%.3f" % (torch.min(z),	torch.mean(z),	torch.max(z)))
+
+#%%
+
+tt = terrain_set2.TerrainSet('data/USGS_1M_10_x43y466_OR_RogueSiskiyouNF_2019_B19.tif',
+    size=n, stride=8, rescale=rescale)
+test = DataLoader(tt, batch_size=256, shuffle=True,
+    num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
+
+running_loss = 0.0
+running_criterion = 0.0
+running_kld = 0.0
+lossfn = nn.MSELoss()
+with torch.no_grad():
+    for i,data in enumerate(test, 0):
+        inputs, targets = data
+        inputs = inputs[:,0:boundl]
+
+        outputs, mu, logvar, z = net(inputs.to(device))
+        criterion_loss = mse(outputs, targets.unsqueeze(1).to(device))
+        kld_loss = kld(mu, logvar)
+        loss = vaeloss(epoch, criterion_loss, kld_loss)
+
+        running_criterion += criterion_loss.item()
+        running_kld += kld_loss.item()
+        running_loss += loss.item()
+
+print("test: crit=%.4f" % (running_criterion/len(test)))
+
+# boundl 256 rescale 4 latent 2048 val: l=0.0272, crit=0.0200, kld=2.3492 test: crit=0.1223

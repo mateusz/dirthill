@@ -17,12 +17,15 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 n=128
 boundl=256
 rescale=4
+mname='06-%d-%d' % (boundl, rescale)
+
+batch=256//rescale
 ts = terrain_set2.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
     size=n, stride=8, rescale=rescale)
 t,v = torch.utils.data.random_split(ts, [0.90, 0.10])
-train = DataLoader(t, batch_size=256//rescale, shuffle=True,
+train = DataLoader(t, batch_size=batch, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
-val = DataLoader(v, batch_size=256//rescale, shuffle=True,
+val = DataLoader(v, batch_size=batch, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
 
 #%%
@@ -165,7 +168,7 @@ for epoch in range(999):  # loop over the dataset multiple times
         min_val_loss = vl
         early_stop_counter = 0
         print('saving...')
-        torch.save(net, 'models/06-%s-%s' % (boundl, rescale) )
+        torch.save(net, 'models/%s' % (mname) )
     else:
         early_stop_counter += 1
 
@@ -174,13 +177,38 @@ for epoch in range(999):  # loop over the dataset multiple times
 
 # 2-bound val: 8
 
-net = torch.load('models/06-%s-%s' % (boundl, rescale)).eval()
+
+net = torch.load('models/%s' % (mname)).eval()
 print(net)
 
-dummy_input = torch.randn(1, 256, device="cuda")
+dummy_input = torch.randn(1, boundl, device="cuda")
 input_names = [ "edge" ]
 output_names = [ "tile" ]
 
 torch.onnx.export(
-    net, dummy_input, "ui/dist/06-%d-%d.onnx" % (boundl, rescale),
+    net, dummy_input, "ui/dist/%s.onnx" % (mname),
     verbose=True, input_names=input_names, output_names=output_names)
+
+#%%
+
+tt = terrain_set2.TerrainSet('data/USGS_1M_10_x43y466_OR_RogueSiskiyouNF_2019_B19.tif',
+    size=n, stride=8, rescale=rescale)
+test = DataLoader(tt, batch_size=256, shuffle=True,
+    num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
+
+running_loss = 0.0
+lossfn = nn.MSELoss()
+with torch.no_grad():
+    for i,data in enumerate(test, 0):
+        inputs, targets = data
+        inputs = inputs[:,0:boundl]
+        outputs = net(inputs.to(device))
+        loss = lossfn(outputs, targets.unsqueeze(1).to(device))
+        running_loss += loss.item()
+
+l = running_loss/len(test)
+print("test: %.4f" % (l))
+
+# boundl 2 rescale 4 latent 1024 val: 0.0085, test: 0.1168, 25MB
+# boundl 2 rescale 4 latent 2048 val: 0.0086, test: 0.1307, 40MB
+# the models above are able to "simulate" rivers - how the water flows from high to low ground. Up to two rivers per side
