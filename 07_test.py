@@ -18,6 +18,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 n=128
 size=128
 boundl = 256
+rescale = 4
 
 def plot_surface(ax, data, cmap, alpha):
     meshx, meshy = np.meshgrid(np.linspace(0, size, size), np.linspace(0, size, size))
@@ -92,9 +93,9 @@ def show(target, out, r=35):
 #%%
 
 ts = terrain_set2.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
-    size=n, stride=8)
+    size=n, stride=8, rescale=rescale)
 tt = terrain_set2.TerrainSet('data/USGS_1M_10_x43y466_OR_RogueSiskiyouNF_2019_B19.tif',
-    size=n, stride=8)
+    size=n, stride=8, rescale=rescale)
 test = DataLoader(tt, batch_size=256, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
 
@@ -114,7 +115,7 @@ class View(nn.Module):
 # https://github.com/pytorch/pytorch/issues/49538
 nn.Unflatten = View
 
-net = torch.load('models/06-%d'%boundl)
+net = torch.load('models/06-%d-%d'%(boundl, rescale))
 net.eval()
 net = net.to(device)
 
@@ -135,6 +136,8 @@ print("test: %.2f" % (l))
 
 # onnx-ready 1 bound: 
 # onnx-ready 2 bound: 54 (dropout=0.5)
+# bound 2 rescale 4 latent 256 dropout 0: 990
+# bound 2 rescale 4 latent 512 dropout 0: 1368
 
 #%%
 
@@ -164,7 +167,7 @@ with torch.no_grad():
     #out = net(torch.Tensor([input]).to(device)).cpu().squeeze(1)
     #show(target, out[0].numpy(), r=45)
 
-    input,target = tt[2500]
+    input,target = ts[20]
     input = input[0:boundl]
     out = net(torch.Tensor([input]).to(device)).cpu().squeeze(1)
     show(target, out[0].numpy(), r=45)

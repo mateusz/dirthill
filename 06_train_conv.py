@@ -16,12 +16,13 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 n=128
 boundl=256
+rescale=4
 ts = terrain_set2.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
-    size=n, stride=8)
+    size=n, stride=8, rescale=rescale)
 t,v = torch.utils.data.random_split(ts, [0.90, 0.10])
-train = DataLoader(t, batch_size=256, shuffle=True,
+train = DataLoader(t, batch_size=256//rescale, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
-val = DataLoader(v, batch_size=256, shuffle=True,
+val = DataLoader(v, batch_size=256//rescale, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
 
 #%%
@@ -80,15 +81,12 @@ conv1 = nn.Sequential(
 
         nn.Flatten(),
 
-        nn.Linear(ch*32*2*int(boundl/128), 256),
+        nn.Linear(ch*32*2*int(boundl/128), 1024),
         nn.ReLU(inplace=True),
         # This prevents instability in UI usage (otherwise single value changes blow up the output!)
         nn.Dropout(0.5),
 
-        nn.Linear(256, chd*32*2*2),
-        nn.ReLU(inplace=True),
-        nn.Dropout(0.5),
-
+        nn.Linear(1024, chd*32*2*2),
         nn.Unflatten(1, (chd*32, 2, 2)),
         
         nn.ConvTranspose2d(chd*32, chd*16, 3, stride=2, padding=1, output_padding=1),
@@ -147,7 +145,7 @@ for epoch in range(999):  # loop over the dataset multiple times
         # print statistics
         running_loss += loss.item()
         if i % 10 == 9:
-            print("train: %.2f" % (running_loss/10.0))
+            print("train: %.4f" % (running_loss/10.0))
             running_loss = 0.0
 
     running_loss = 0.0
@@ -161,13 +159,13 @@ for epoch in range(999):  # loop over the dataset multiple times
             running_loss += loss.item()
 
     vl = running_loss/len(val)
-    print("val: %.2f" % (vl))
+    print("val: %.4f" % (vl))
 
     if vl<min_val_loss:
         min_val_loss = vl
         early_stop_counter = 0
         print('saving...')
-        torch.save(net, 'models/06-%s' % boundl )
+        torch.save(net, 'models/06-%s-%s' % (boundl, rescale) )
     else:
         early_stop_counter += 1
 
@@ -175,3 +173,14 @@ for epoch in range(999):  # loop over the dataset multiple times
         break
 
 # 2-bound val: 8
+
+net = torch.load('models/06-%s-%s' % (boundl, rescale)).eval()
+print(net)
+
+dummy_input = torch.randn(1, 256, device="cuda")
+input_names = [ "edge" ]
+output_names = [ "tile" ]
+
+torch.onnx.export(
+    net, dummy_input, "ui/dist/06-%d-%d.onnx" % (boundl, rescale),
+    verbose=True, input_names=input_names, output_names=output_names)

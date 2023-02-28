@@ -150,7 +150,8 @@ func (g *Game) NewSurfaceMesh(w, h int) *tetra3d.Mesh {
 	vi := make([]tetra3d.VertexInfo, 0, 128*128)
 	for j := 0; j < h; j++ {
 		for i := 0; i < w; i++ {
-			elev := float64(g.tileValues[(127-j)*w+i])
+			// values as -1..1
+			elev := (float64(g.tileValues[(127-j)*w+i]) + 1.0) * 30.0
 			vert := tetra3d.NewVertex(float64(j)*0.1, elev*0.1, float64(i)*0.1, 0, 0)
 			if i <= 1 {
 				vert.Colors = append(vert.Colors, tetra3d.NewColor(float32(csHighlight1.R)/255.0, float32(csHighlight1.G)/255.0, float32(csHighlight1.B)/255.0, float32(csHighlight1.A)/255.0))
@@ -272,11 +273,19 @@ func (g *Game) Infer() {
 	var edge []byte
 	var err error
 	if g.sides == 1 {
-		edge, err = json.Marshal(g.cs1.values)
+		values := make([]float32, 0, 128)
+		values = append(values, g.cs1.values...)
+		for i, _ := range values {
+			values[i] = values[i]/(float32(csHeight)/2.0) - 1.0
+		}
+		edge, err = json.Marshal(values)
 	} else {
 		values := make([]float32, 0, 256)
 		values = append(values, g.cs1.values...)
 		values = append(values, g.cs2.values...)
+		for i, _ := range values {
+			values[i] = values[i]/(float32(csHeight)/2.0) - 1.0
+		}
 		edge, err = json.Marshal(values)
 	}
 

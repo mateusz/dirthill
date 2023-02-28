@@ -13,13 +13,16 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #%%
 
 n=128
-boundl=128
+boundl=256
+rescale=1
+
+batch=256//rescale
 ts = terrain_set2.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
-    size=n, stride=8)
+    size=n, stride=8, rescale=rescale)
 t,v = torch.utils.data.random_split(ts, [0.90, 0.10])
-train = DataLoader(t, batch_size=256, shuffle=True,
+train = DataLoader(t, batch_size=batch, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
-val = DataLoader(v, batch_size=256, shuffle=True,
+val = DataLoader(v, batch_size=batch, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
 
 #%%
@@ -42,17 +45,27 @@ class View(nn.Module):
 # https://github.com/pytorch/pytorch/issues/49538
 nn.Unflatten = View
 
-net = nn.Sequential(
-    nn.Linear(boundl,1024),
-    nn.ReLU(True),
-    # For 2 bounds:
-    #nn.Dropout(p=0.1),
-    # For 1 bound?
-    nn.Dropout(p=0.5),
-    nn.Linear(1024, n*n),
-    nn.ReLU(True),
-    nn.Unflatten(1, (128, 128)),
-)
+if rescale==4:
+    net = nn.Sequential(
+        nn.Linear(boundl,2048),
+        nn.ReLU(True),
+        nn.Dropout(p=0.5),
+        nn.Linear(2048, n*n),
+        nn.ReLU(True),
+        nn.Unflatten(1, (128, 128)),
+    )
+else:
+    net = nn.Sequential(
+        nn.Linear(boundl,1024),
+        nn.ReLU(True),
+        # For 2 bounds:
+        #nn.Dropout(p=0.1),
+        # For 1 bound?
+        nn.Dropout(p=0.5),
+        nn.Linear(1024, n*n),
+        nn.ReLU(True),
+        nn.Unflatten(1, (128, 128)),
+    )
 
 net = net.to(device)
 opt = optim.Adam(net.parameters())
@@ -101,7 +114,7 @@ for epoch in range(9999):  # loop over the dataset multiple times
         min_val_loss = vl
         early_stop_counter = 0
         print('saving...')
-        torch.save(net, 'models/02-%d'%boundl)
+        torch.save(net, 'models/02-%d-%d'%(boundl, rescale))
     else:
         early_stop_counter += 1
 
