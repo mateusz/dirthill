@@ -37,6 +37,8 @@ var (
 	neutralBright = color.RGBA{78, 90, 102, 255}
 	csHighlight1  = color.RGBA{251, 105, 80, 255}
 	csHighlight2  = color.RGBA{47, 144, 212, 255}
+	waterColor    = color.RGBA{50, 50, 212, 255}
+	waterLevel    = 50.0
 )
 
 func htoc(h float64) *tetra3d.Color {
@@ -150,15 +152,18 @@ func (g *Game) NewSurfaceMesh(w, h int) *tetra3d.Mesh {
 	vi := make([]tetra3d.VertexInfo, 0, 128*128)
 	for j := 0; j < h; j++ {
 		for i := 0; i < w; i++ {
-			// values as -1..1
-			elev := (float64(g.tileValues[(127-j)*w+i]) + 1.0) * 30.0
-			vert := tetra3d.NewVertex(float64(j)*0.1, elev*0.1, float64(i)*0.1, 0, 0)
-			if i <= 1 {
+			// values generally between 0..csHeight (but could be more or less in extreme cases if model returns values outside of training range)
+			elev := float64(g.tileValues[(127-j)*w+i])
+			vert := tetra3d.NewVertex(float64(j)*0.1, elev*0.03, float64(i)*0.1, 0, 0)
+			if elev < waterLevel {
+				vert = tetra3d.NewVertex(float64(j)*0.1, waterLevel*0.03, float64(i)*0.1, 0, 0)
+				vert.Colors = append(vert.Colors, tetra3d.NewColor(float32(waterColor.R)/255.0, float32(waterColor.G)/255.0, float32(waterColor.B)/255.0, float32(waterColor.A)/255.0))
+			} else if i <= 1 {
 				vert.Colors = append(vert.Colors, tetra3d.NewColor(float32(csHighlight1.R)/255.0, float32(csHighlight1.G)/255.0, float32(csHighlight1.B)/255.0, float32(csHighlight1.A)/255.0))
 			} else if g.sides > 1 && j <= 1 {
 				vert.Colors = append(vert.Colors, tetra3d.NewColor(float32(csHighlight2.R)/255.0, float32(csHighlight2.G)/255.0, float32(csHighlight2.B)/255.0, float32(csHighlight2.A)/255.0))
 			} else {
-				vert.Colors = append(vert.Colors, htoc(elev))
+				vert.Colors = append(vert.Colors, htoc(elev*0.3))
 			}
 
 			vert.ActiveColorChannel = 0
@@ -272,22 +277,34 @@ func (g *Game) Interp() {
 func (g *Game) Infer() {
 	var edge []byte
 	var err error
+	var values []float32
 	if g.sides == 1 {
-		values := make([]float32, 0, 128)
+		values = make([]float32, 0, 128)
 		values = append(values, g.cs1.values...)
-		for i, _ := range values {
-			values[i] = values[i]/(float32(csHeight)/2.0) - 1.0
-		}
-		edge, err = json.Marshal(values)
 	} else {
-		values := make([]float32, 0, 256)
+		values = make([]float32, 0, 256)
 		values = append(values, g.cs1.values...)
 		values = append(values, g.cs2.values...)
-		for i, _ := range values {
-			values[i] = values[i]/(float32(csHeight)/2.0) - 1.0
-		}
-		edge, err = json.Marshal(values)
 	}
+
+	min := float32(99999.0)
+	max := float32(0.0)
+	for i, _ := range values {
+		if values[i] < min {
+			min = values[i]
+		}
+		if values[i] > max {
+			max = values[i]
+		}
+	}
+
+	// Discard data below and above minimum (model expect normalised [-1,1] input)
+	span := max - min
+	for i, _ := range values {
+		values[i] = (values[i]-min)/(span/2.0) - 1.0
+	}
+
+	edge, err = json.Marshal(values)
 
 	if err != nil {
 		g.console.Call("log", fmt.Sprintf("Failed to marshal data: %s", err))
@@ -296,7 +313,10 @@ func (g *Game) Infer() {
 	asyncWait := make(chan interface{})
 	g.document.Call("infer", string(edge)).Call("then", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		for i := 0; i < 128*128; i++ {
-			g.tileValues[i] = float32(args[0].Get(fmt.Sprintf("%d", i)).Float())
+			v := float32(args[0].Get(fmt.Sprintf("%d", i)).Float())
+			// Rescale output of the model back to the reflect the input shape, but not the base.
+			// We always start at 0, because the model tends to exagerrate anyway.
+			g.tileValues[i] = (v + 1.0) * (span * 2.0) // +min
 		}
 		asyncWait <- nil
 		return nil
