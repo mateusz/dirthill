@@ -38,7 +38,7 @@ var (
 	csHighlight1  = color.RGBA{251, 105, 80, 255}
 	csHighlight2  = color.RGBA{47, 144, 212, 255}
 	waterColor    = color.RGBA{50, 50, 212, 255}
-	waterLevel    = 50.0
+	waterLevel    = 5.0
 )
 
 func htoc(h float64) *tetra3d.Color {
@@ -154,16 +154,16 @@ func (g *Game) NewSurfaceMesh(w, h int) *tetra3d.Mesh {
 		for i := 0; i < w; i++ {
 			// values generally between 0..csHeight (but could be more or less in extreme cases if model returns values outside of training range)
 			elev := float64(g.tileValues[(127-j)*w+i])
-			vert := tetra3d.NewVertex(float64(j)*0.1, elev*0.03, float64(i)*0.1, 0, 0)
+			vert := tetra3d.NewVertex(float64(j)*0.1, elev*0.1, float64(i)*0.1, 0, 0)
 			if elev < waterLevel {
-				vert = tetra3d.NewVertex(float64(j)*0.1, waterLevel*0.03, float64(i)*0.1, 0, 0)
+				vert = tetra3d.NewVertex(float64(j)*0.1, waterLevel*0.1, float64(i)*0.1, 0, 0)
 				vert.Colors = append(vert.Colors, tetra3d.NewColor(float32(waterColor.R)/255.0, float32(waterColor.G)/255.0, float32(waterColor.B)/255.0, float32(waterColor.A)/255.0))
 			} else if i <= 1 {
 				vert.Colors = append(vert.Colors, tetra3d.NewColor(float32(csHighlight1.R)/255.0, float32(csHighlight1.G)/255.0, float32(csHighlight1.B)/255.0, float32(csHighlight1.A)/255.0))
 			} else if g.sides > 1 && j <= 1 {
 				vert.Colors = append(vert.Colors, tetra3d.NewColor(float32(csHighlight2.R)/255.0, float32(csHighlight2.G)/255.0, float32(csHighlight2.B)/255.0, float32(csHighlight2.A)/255.0))
 			} else {
-				vert.Colors = append(vert.Colors, htoc(elev*0.3))
+				vert.Colors = append(vert.Colors, htoc(elev*1.2))
 			}
 
 			vert.ActiveColorChannel = 0
@@ -312,11 +312,20 @@ func (g *Game) Infer() {
 
 	asyncWait := make(chan interface{})
 	g.document.Call("infer", string(edge)).Call("then", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		obase := float32(99999.0)
 		for i := 0; i < 128*128; i++ {
 			v := float32(args[0].Get(fmt.Sprintf("%d", i)).Float())
-			// Rescale output of the model back to the reflect the input shape, but not the base.
-			// We always start at 0, because the model tends to exagerrate anyway.
-			g.tileValues[i] = (v + 1.0) * (span * 2.0) // +min
+			if v < obase {
+				obase = v
+			}
+
+		}
+		g.console.Call("log", fmt.Sprintf("%+v", obase))
+		for i := 0; i < 128*128; i++ {
+			v := float32(args[0].Get(fmt.Sprintf("%d", i)).Float())
+			// Pull output down to zero, then rescale back to reflect the input shape (which depends on csHeight).
+			// However, let's always start at 0 - so don't push back up to min
+			g.tileValues[i] = ((v + 1.0) - (obase + 1.0)) * (span / 2.0) // +min
 		}
 		asyncWait <- nil
 		return nil
