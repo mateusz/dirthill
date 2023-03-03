@@ -440,7 +440,7 @@ func (g *game) Draw(screen *ebiten.Image) {
 
 	opt := &ebiten.DrawImageOptions{}
 	opt.GeoM.Translate(10, 23)
-	text.DrawWithOptions(screen, fmt.Sprintf("Inferring terrain from cross-sections\nby github.com/mateusz\nModel: %s", g.modelName), basicfont.Face7x13, opt)
+	text.DrawWithOptions(screen, fmt.Sprintf("Inferring terrain from cross-sections using deep learning\nSee https://github.com/mateusz/dirthill\nModel: %s", g.modelName), basicfont.Face7x13, opt)
 
 	if g.mobileExperimental {
 		opt := &ebiten.DrawImageOptions{}
