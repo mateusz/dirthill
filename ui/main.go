@@ -368,7 +368,7 @@ func (g *game) Update() error {
 
 	mx, my := ebiten.CursorPosition()
 	g.touchIDs = ebiten.AppendTouchIDs(g.touchIDs[:0])
-	if mx > 0 || my > 0 {
+	if !g.mobileExperimental && mx > 0 && my > 0 {
 		cooldown = 200 * time.Millisecond
 		g.mobileExperimental = false
 
