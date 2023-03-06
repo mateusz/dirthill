@@ -12,6 +12,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text"
 
 	"syscall/js"
@@ -279,16 +280,14 @@ func (g *game) Init() {
 	g.scene.World.LightingOn = true
 
 	g.camera = tetra3d.NewCamera(screenWidth, screenHeight)
-	g.camera.Move(-5, 10, -5)
-	g.camera.Rotate(0, 1, 0, -0.75*math.Pi)
-	g.camera.Rotate(1, 0, 0, -0.5)
+	g.cameraAngle = -0.75
 
 	light := tetra3d.NewPointLight("light", 1, 1, 1, 1.5)
 	light.Distance = 100
 	light.Move(-5, 20, -10)
 	light.On = true
 	g.scene.Root.AddChildren(light)
-	g.scene.Root.AddChildren(tetra3d.NewModel(g.newSurfaceMesh(g.tileValues, 128, 128, nil), "Surface"))
+	g.updateSurfaces()
 
 	asyncWait := make(chan interface{})
 	g.document.Call("load").Call("then", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
@@ -411,43 +410,63 @@ func (g *game) Update() error {
 
 	if g.changed && time.Now().Sub(g.lastChanged) > cooldown {
 		g.changed = false
-
-		g.scene.Root.SearchTree().ByName("Surface").ForEach(func(node tetra3d.INode) bool {
-			g.scene.Root.RemoveChildren(node)
-			return true
-		})
-
 		g.infer()
+		g.updateSurfaces()
+	}
 
-		g.scene.Root.AddChildren(tetra3d.NewModel(g.newSurfaceMesh(g.tileValues, 128, 128, nil), "Surface"))
-
-		values := make([]float32, 0, 256)
-		min, _ := g.cs1.getExtremes(99999.0, 0.0)
-		min, _ = g.cs2.getExtremes(min, 0.0)
-
-		for _, v := range g.cs1.values {
-			n := (float32(v) - min) * cs3dAdjust
-			values = append(values, n, n)
-		}
-		g.scene.Root.AddChildren(tetra3d.NewModel(g.newSurfaceMesh(values, 2, 128, &csHighlight1), "Surface"))
-
-		if g.sides == 2 {
-			for i, v := range g.cs2.values {
-				n := (float32(v) - min) * cs3dAdjust
-				values[i] = n
-				values[128+i] = n
-			}
-			g.scene.Root.AddChildren(tetra3d.NewModel(g.newSurfaceMesh(values, 128, 2, &csHighlight2), "Surface"))
-		}
-
+	if inpututil.IsKeyJustPressed(ebiten.KeyLeft) {
+		g.cameraAngle += 0.1
+		g.needs3dRender = true
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyRight) {
+		g.cameraAngle -= 0.1
 		g.needs3dRender = true
 	}
 
 	return nil
 }
 
+func (g *game) updateSurfaces() {
+	g.scene.Root.SearchTree().ByName("Surface").ForEach(func(node tetra3d.INode) bool {
+		g.scene.Root.RemoveChildren(node)
+		return true
+	})
+
+	g.scene.Root.AddChildren(tetra3d.NewModel(g.newSurfaceMesh(g.tileValues, 128, 128, nil), "Surface"))
+
+	values := make([]float32, 0, 256)
+	min, _ := g.cs1.getExtremes(99999.0, 0.0)
+	min, _ = g.cs2.getExtremes(min, 0.0)
+
+	for _, v := range g.cs1.values {
+		n := (float32(v) - min) * cs3dAdjust
+		values = append(values, n, n)
+	}
+	g.scene.Root.AddChildren(tetra3d.NewModel(g.newSurfaceMesh(values, 2, 128, &csHighlight1), "Surface"))
+
+	if g.sides == 2 {
+		for i, v := range g.cs2.values {
+			n := (float32(v) - min) * cs3dAdjust
+			values[i] = n
+			values[128+i] = n
+		}
+		g.scene.Root.AddChildren(tetra3d.NewModel(g.newSurfaceMesh(values, 128, 2, &csHighlight2), "Surface"))
+	}
+
+	g.needs3dRender = true
+}
+
 func (g *game) Draw(screen *ebiten.Image) {
 	screen.Fill(neutralFill)
+
+	// There is a better way to do planetary rotation for camera, but for now this is fine.
+	g.camera.ResetLocalTransform()
+	g.camera.Move(0.1*64, 0, 0.1*64)
+	g.camera.Move(17.0*math.Cos(g.cameraAngle*math.Pi), 10, 17.0*math.Sin(g.cameraAngle*math.Pi))
+	g.camera.Rotate(0, 1, 0, -g.cameraAngle*math.Pi+math.Pi/2) // -0.75
+
+	// Also, look down
+	g.camera.Rotate(1, 0, 0, -0.5)
 
 	if g.needs3dRender {
 		g.needs3dRender = false
@@ -463,7 +482,7 @@ func (g *game) Draw(screen *ebiten.Image) {
 
 	opt := &ebiten.DrawImageOptions{}
 	opt.GeoM.Translate(10, 23)
-	text.DrawWithOptions(screen, fmt.Sprintf("Inferring terrain from cross-sections using deep learning\nSee https://github.com/mateusz/dirthill\nModel: %s", g.modelName), basicfont.Face7x13, opt)
+	text.DrawWithOptions(screen, fmt.Sprintf("Inferring terrain from cross-sections using deep learning\nSee https://github.com/mateusz/dirthill\nModel: %s\nUse arrows to rotate", g.modelName), basicfont.Face7x13, opt)
 
 	if g.mobileExperimental {
 		opt := &ebiten.DrawImageOptions{}
