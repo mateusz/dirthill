@@ -99,20 +99,18 @@ class TerrainSet(Dataset):
             ]
 
 """
-
 ts = TerrainSet([
-        'data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
-        'data/USGS_1M_10_x49y452_CA_CarrHirzDeltaFires_2019_B19.tif',
-        'data/USGS_1M_10_x51y489_OR_McKenzieRiver_2021_B21.tif',
-        'data/USGS_1M_10_x51y524_WA_PierceCounty_2020_A20.tif',
-        'data/USGS_1M_10_x58y418_CA_AlamedaCounty_2021_B21.tif',
-        'data/USGS_1M_10_x67y517_WA_EasternCascades_2019_B19.tif',
-        'data/USGS_1M_11_x22y417_CA_SouthernSierra_2020_B20.tif',
+        'data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif', # good at 4, maybe 6
+        #'data/USGS_1M_10_x49y452_CA_CarrHirzDeltaFires_2019_B19.tif',
+        #'data/USGS_1M_10_x51y489_OR_McKenzieRiver_2021_B21.tif',
+        #'data/USGS_1M_10_x51y524_WA_PierceCounty_2020_A20.tif',
+        #'data/USGS_1M_10_x58y418_CA_AlamedaCounty_2021_B21.tif',
+        #'data/USGS_1M_10_x67y517_WA_EasternCascades_2019_B19.tif',
+        #'data/USGS_1M_11_x22y417_CA_SouthernSierra_2020_B20.tif', # good at 4
     ],
-    size=128, stride=8, rescale=4)
-
-d = ts[0][1]
+    size=128, stride=8, rescale=6)
+#%%
+d = ts[3300][1]
 plt.imshow(d)
 plt.show()
-
 """

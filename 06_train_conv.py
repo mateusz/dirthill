@@ -16,20 +16,26 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 n=128
 boundl=256
-rescale=8 # ~sqrt(7)*4?
+rescale=6
 mname='06-%d-%d' % (boundl, rescale)
 
-report_steps = 100
+report_steps = 500
 
-batch=256//rescale
+#batch=256//rescale
+batch=32
 ts = terrain_set2.TerrainSet([
         'data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
-        'data/USGS_1M_10_x49y452_CA_CarrHirzDeltaFires_2019_B19.tif',
-        'data/USGS_1M_10_x51y489_OR_McKenzieRiver_2021_B21.tif',
-        'data/USGS_1M_10_x51y524_WA_PierceCounty_2020_A20.tif',
-        'data/USGS_1M_10_x58y418_CA_AlamedaCounty_2021_B21.tif',
-        'data/USGS_1M_10_x67y517_WA_EasternCascades_2019_B19.tif',
-        'data/USGS_1M_11_x22y417_CA_SouthernSierra_2020_B20.tif',
+        'data/USGS_1M_10_x43y466_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x44y465_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x45y466_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x46y466_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x46y467_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x47y465_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x47y466_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x49y465_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x49y466_OR_RogueSiskiyouNF_2019_B19.tif',
+        #'data/USGS_1M_10_x49y467_OR_RogueSiskiyouNF_2019_B19.tif',
+        #'data/USGS_1M_10_x50y465_OR_RogueSiskiyouNF_2019_B19.tif',
     ],
     size=n, stride=8, rescale=rescale, min_elev_diff=20.0)
 # Random sampling to reduce the amount of training tiles and prevent excessive smoothing
@@ -99,12 +105,12 @@ conv1 = nn.Sequential(
 
         nn.Flatten(),
 
-        nn.Linear(ch*32*2*int(boundl/128), 1024),
+        nn.Linear(ch*32*2*int(boundl/128), 2048),
         nn.ReLU(inplace=True),
         # This prevents instability in UI usage (otherwise single value changes blow up the output!)
-        nn.Dropout(0.5),
+        nn.Dropout(0.75),
 
-        nn.Linear(1024, chd*32*2*2),
+        nn.Linear(2048, chd*32*2*2),
         nn.Unflatten(1, (chd*32, 2, 2)),
         
         nn.ConvTranspose2d(chd*32, chd*16, 3, stride=2, padding=1, output_padding=1),
@@ -206,7 +212,10 @@ torch.onnx.export(
 
 #%%
 
-tt = terrain_set2.TerrainSet(['data/USGS_1M_10_x47y466_OR_RogueSiskiyouNF_2019_B19.tif'],
+tt = terrain_set2.TerrainSet([
+        # https://www.sciencebase.gov/catalog/item/60d5632cd34ef0ccfc0c8583
+        'data/USGS_1M_10_x50y466_OR_RogueSiskiyouNF_2019_B19.tif',
+    ],
     size=n, stride=8, rescale=rescale)
 test = DataLoader(tt, batch_size=batch, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
@@ -244,8 +253,16 @@ print("test: %.4f" % (l))
 
 # squares 60k min_elev_diff 20, ch 32, latent 1024, dropout 0.5, rescale 8, batch 64: val 0.0446
 # squares 25k min_elev_diff 20, ch 32, latent 1024, dropout 0.5, rescale 8, batch 64: val 0.0571
-# squares 100k min_elev_diff 20, ch 32, latent 1024, dropout 0.5, rescale 8, batch 32: val 0.0275, test 0.0854
+# squares 100k min_elev_diff 20, ch 32, latent 1024, dropout 0.5, rescale 8, batch 32: val 0.0275, test2 0.0854
 
 # Hm so maybe it's the batches? Potentially together with dropout, we can learn more variety, but is this even deep learning?
 # Or just remembering the dataset in a fancy way? If we just wanted to upscale, but not increase variety, we could instead use
 # more data for the same region, maybe this would help generalisation?
+
+# Maybe it's around 512 neurons per 100k tiles at 4 rescale. Batch 32 seems ok.
+# So, 1024 neurons with 0.5 dropout is ok for 100k and 4096 neurons with 0.875 dropout is ok, something like that.
+
+# squares 500k min_elev_diff 20, ch 32, latent 4k, dropout 0.875, rescale 4, batch 32: val 0.0309, test2 0.0525. But effect is boring.
+
+# Back to roguesiskiyou-only, 10x files
+# squares 250k min_elev_diff 20, ch 32, latent 2k, dropout 0.75, rescale 6, batch 32: val 0.0183, test 0.0587, kind of ok
