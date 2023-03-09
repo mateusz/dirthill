@@ -16,17 +16,32 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 n=128
 boundl=256
-rescale=4
+rescale=8 # ~sqrt(7)*4?
 mname='06-%d-%d' % (boundl, rescale)
 
+report_steps = 100
+
 batch=256//rescale
-ts = terrain_set2.TerrainSet('data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
-    size=n, stride=8, rescale=rescale)
-t,v = torch.utils.data.random_split(ts, [0.90, 0.10])
+ts = terrain_set2.TerrainSet([
+        'data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x49y452_CA_CarrHirzDeltaFires_2019_B19.tif',
+        'data/USGS_1M_10_x51y489_OR_McKenzieRiver_2021_B21.tif',
+        'data/USGS_1M_10_x51y524_WA_PierceCounty_2020_A20.tif',
+        'data/USGS_1M_10_x58y418_CA_AlamedaCounty_2021_B21.tif',
+        'data/USGS_1M_10_x67y517_WA_EasternCascades_2019_B19.tif',
+        'data/USGS_1M_11_x22y417_CA_SouthernSierra_2020_B20.tif',
+    ],
+    size=n, stride=8, rescale=rescale, min_elev_diff=20.0)
+# Random sampling to reduce the amount of training tiles and prevent excessive smoothing
+#sampled,_ = torch.utils.data.random_split(ts, [0.2, 0.8])
+t,v = torch.utils.data.random_split(ts, [0.9, 0.1])
 train = DataLoader(t, batch_size=batch, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
 val = DataLoader(v, batch_size=batch, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
+
+print("%d" % len(ts))
+print("%d, %d" % (len(train)*batch, len(val)*batch))
 
 #%%
 
@@ -47,8 +62,8 @@ nn.Unflatten = View
 # Todo:
 # - maybe just go back to convolving and then using linear (to not muddle the results with upscaler issues)
 # - try bigger kernel (8 didnt change anything), but maybe 32 or something?
-ch=16
-chd=16
+ch=32
+chd=32
 conv1 = nn.Sequential(
         nn.Unflatten(1, (1, boundl)),
 
@@ -147,8 +162,8 @@ for epoch in range(999):  # loop over the dataset multiple times
 
         # print statistics
         running_loss += loss.item()
-        if i % 10 == 9:
-            print("train: %.4f" % (running_loss/10.0))
+        if i % report_steps == report_steps-1:
+            print("train: %.4f" % (running_loss/float(report_steps)))
             running_loss = 0.0
 
     running_loss = 0.0
@@ -191,9 +206,9 @@ torch.onnx.export(
 
 #%%
 
-tt = terrain_set2.TerrainSet('data/USGS_1M_10_x43y466_OR_RogueSiskiyouNF_2019_B19.tif',
+tt = terrain_set2.TerrainSet(['data/USGS_1M_10_x47y466_OR_RogueSiskiyouNF_2019_B19.tif'],
     size=n, stride=8, rescale=rescale)
-test = DataLoader(tt, batch_size=256, shuffle=True,
+test = DataLoader(tt, batch_size=batch, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
 
 running_loss = 0.0
@@ -212,3 +227,25 @@ print("test: %.4f" % (l))
 # boundl 2 rescale 4 latent 1024 val: 0.0085, test: 0.1168, 25MB
 # boundl 2 rescale 4 latent 2048 val: 0.0086, test: 0.1307, 40MB
 # the models above are able to "simulate" rivers - how the water flows from high to low ground. Up to two rivers per side
+
+# On 7 files:
+# min_elev_diff 10, ch 16, latent 2048, dropout 0.5: val 0.0322, test ?, result flat and boring - maybe too much flatness in the data?
+# min_elev_diff 10, ch 32, latent 1024, dropout 0.0: val 0.05, test 0.13, same flat
+
+# min_elev_diff 20, ch 32, latent 1024, dropout 0.5, rescale 8, batch 32: val 0.0328
+# squares 64k min_elev_diff 20, ch 32, latent 1024, dropout 0.5, rescale 10, batch 64: val 0.0184
+# squares 40k min_elev_diff 20, ch 32, latent 1024, dropout 0.5, rescale 12, batch 64: val 0.0228
+
+# The idea here I think is that the normalised boundary of 256 can only represent a limited amount of squares.
+# If too many squares are in the training set, system starts to average things out.
+# We do want to capture some of the input idiosyncracies, so the set has to be curbed either via upscaling, or by sampling.
+# At the same time, rescale of 8-10 gives good results, while 12 starts losing detail
+# Single-file model used 20k squares. 65k with rescale 10 seemed ok
+
+# squares 60k min_elev_diff 20, ch 32, latent 1024, dropout 0.5, rescale 8, batch 64: val 0.0446
+# squares 25k min_elev_diff 20, ch 32, latent 1024, dropout 0.5, rescale 8, batch 64: val 0.0571
+# squares 100k min_elev_diff 20, ch 32, latent 1024, dropout 0.5, rescale 8, batch 32: val 0.0275, test 0.0854
+
+# Hm so maybe it's the batches? Potentially together with dropout, we can learn more variety, but is this even deep learning?
+# Or just remembering the dataset in a fancy way? If we just wanted to upscale, but not increase variety, we could instead use
+# more data for the same region, maybe this would help generalisation?
