@@ -6,7 +6,7 @@
 	<script src="dist/ort.min.js"></script>
 	<script>
 		document.boundl = 256
-		document.modelName = '06-' + document.boundl + '-6'
+		document.modelName = '06-' + document.boundl + '-4-10x-huber'
 		document.load = async function (input) {
 			try {
 				document.session = await ort.InferenceSession.create('dist/' + document.modelName + '.onnx');

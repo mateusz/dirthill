@@ -16,7 +16,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 n=128
 boundl=256
-rescale=6
+rescale=4
 mname='06-%d-%d' % (boundl, rescale)
 
 report_steps = 500
@@ -68,8 +68,8 @@ nn.Unflatten = View
 # Todo:
 # - maybe just go back to convolving and then using linear (to not muddle the results with upscaler issues)
 # - try bigger kernel (8 didnt change anything), but maybe 32 or something?
-ch=32
-chd=32
+ch=16
+chd=16
 conv1 = nn.Sequential(
         nn.Unflatten(1, (1, boundl)),
 
@@ -105,12 +105,12 @@ conv1 = nn.Sequential(
 
         nn.Flatten(),
 
-        nn.Linear(ch*32*2*int(boundl/128), 2048),
+        nn.Linear(ch*32*2*int(boundl/128), 512),
         nn.ReLU(inplace=True),
         # This prevents instability in UI usage (otherwise single value changes blow up the output!)
-        nn.Dropout(0.75),
+        #nn.Dropout(0.01),
 
-        nn.Linear(2048, chd*32*2*2),
+        nn.Linear(512, chd*32*2*2),
         nn.Unflatten(1, (chd*32, 2, 2)),
         
         nn.ConvTranspose2d(chd*32, chd*16, 3, stride=2, padding=1, output_padding=1),
@@ -144,7 +144,8 @@ conv1(inp).shape
 
 net = conv1.to(device)
 opt = optim.Adam(net.parameters())
-lossfn = nn.MSELoss()
+#lossfn = nn.MSELoss()
+lossfn = nn.HuberLoss(delta=0.25)
 
 min_val_loss = 9999999999.0
 early_stop_counter = 0
@@ -261,8 +262,21 @@ print("test: %.4f" % (l))
 
 # Maybe it's around 512 neurons per 100k tiles at 4 rescale. Batch 32 seems ok.
 # So, 1024 neurons with 0.5 dropout is ok for 100k and 4096 neurons with 0.875 dropout is ok, something like that.
+# Note test file change
 
 # squares 500k min_elev_diff 20, ch 32, latent 4k, dropout 0.875, rescale 4, batch 32: val 0.0309, test2 0.0525. But effect is boring.
 
-# Back to roguesiskiyou-only, 10x files
-# squares 250k min_elev_diff 20, ch 32, latent 2k, dropout 0.75, rescale 6, batch 32: val 0.0183, test 0.0587, kind of ok
+# Back to roguesiskiyou-only, 10x files. Note test file change.
+# squares 250k min_elev_diff 20, ch 32, latent 2k, dropout 0.75, rescale 6, batch 32: val 0.0183, test3 0.0587, kind of ok
+# squares 600k min_elev_diff 20, ch 16, latent 2k, dropout 0.85, rescale 4, batch 32: val 0.0305, test3 0.0439, too flat
+
+# squares 600k min_elev_diff 20, ch 16, latent 512, dropout 0.0, rescale 4, batch 32: val 0.0160, test3 0.0523, quite good edge matching, comparable with 1x model visually, best so far I think, but a few square artifacts and spikes saved as ui/dist/06-256-4-10x-good.onnx
+# to try: huber loss, dropout 0.01 to smoothen slightly and avoid spikes, smaller batches
+# squares 600k min_elev_diff 20, ch 16, latent 512, dropout 0.0, rescale 4, batch 32, huber loss 0.25: val 0.0076, test3 0.0526, ok but quite spiky. saved as ui/dist/06-256-4-10x-huber.onnx
+
+# So it looks like increasing the dataset 10x allowed us to remove dropout and train directly. Smaller batch sizes, removal of dropout and huber loss
+# are all designed how opinionated the model is, which seems to be working. Model is able to fit edges better and shapes seem more interesting.
+# I think at this point, we can conclude that 1x dataset with 1024 neurons and 0.5 dropout is good for experimentation with architectures, and the
+# results can then be improved by using 10x dataset and removal of dropout.
+
+# Fitting bounds better but too many artifacts. Let's re-add a bit of dropout.

@@ -52,7 +52,7 @@ torch.onnx.export(
 
 #%%
 
-net = torch.load('models/06-256').eval()
+net = torch.load('models/06-256-4').eval()
 print(net)
 
 dummy_input = torch.randn(1, 256, device="cuda")
@@ -60,7 +60,7 @@ input_names = [ "edge" ]
 output_names = [ "tile" ]
 
 torch.onnx.export(
-    net, dummy_input, "ui/dist/06-256.onnx",
+    net, dummy_input, "ui/dist/06-256-4.onnx",
     verbose=True, input_names=input_names, output_names=output_names)
 
 #%%
