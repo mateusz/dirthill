@@ -22,7 +22,7 @@ mname='06-%d-%d' % (boundl, rescale)
 report_steps = 500
 
 #batch=256//rescale
-batch=32
+batch=128
 ts = terrain_set2.TerrainSet([
         'data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
         'data/USGS_1M_10_x43y466_OR_RogueSiskiyouNF_2019_B19.tif',
@@ -108,7 +108,7 @@ conv1 = nn.Sequential(
         nn.Linear(ch*32*2*int(boundl/128), 512),
         nn.ReLU(inplace=True),
         # This prevents instability in UI usage (otherwise single value changes blow up the output!)
-        #nn.Dropout(0.01),
+        nn.Dropout(0.1),
 
         nn.Linear(512, chd*32*2*2),
         nn.Unflatten(1, (chd*32, 2, 2)),
@@ -280,3 +280,5 @@ print("test: %.4f" % (l))
 # results can then be improved by using 10x dataset and removal of dropout.
 
 # Fitting bounds better but too many artifacts. Let's re-add a bit of dropout.
+# squares 600k min_elev_diff 20, ch 16, latent 512, dropout 0.1, rescale 4, batch 64, huber loss 0.25: val 0.0085, test 0.0488, better, ui/dist/06-256-4-1.onnx
+# squares 600k min_elev_diff 20, ch 16, latent 512, dropout 0.1, rescale 4, batch 128, huber loss 0.25: val 0.0087, test 0.0499, better, ui/dist/06-256-4-2.onnx good stuff
