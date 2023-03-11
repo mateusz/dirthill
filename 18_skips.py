@@ -18,12 +18,12 @@ boundl=256
 rescale=4
 mname='18-%d-%d' % (boundl, rescale)
 
-report_steps = 20
+report_steps = 100
 
 batch=64
 #%%
 ts = terrain_set2.TerrainSet([
-        'data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x46y466_OR_RogueSiskiyouNF_2019_B19.tif',
     ],
     size=n, stride=8, rescale=rescale, min_elev_diff=20.0)
 t,v = torch.utils.data.random_split(ts, [0.9, 0.1])
@@ -81,13 +81,18 @@ class EncoderBlock(nn.Module):
         return x, d
 
 class DecoderBlock(nn.Module):
-    def __init__(self, in_ch, out_ch, layers=3):
+    def __init__(self, in_ch, out_ch, layers=3, skip=True):
         super().__init__()
 
         self.in_ch = in_ch
         self.out_ch = out_ch
+        self.skip = skip
 
-        ch = in_ch*2
+        if skip:
+            ch = in_ch*2
+        else:
+            ch = in_ch
+
         self.dec = nn.ModuleList()
         for _ in range(0, layers, 1):
             self.dec.append(nn.Conv2d(ch, out_ch, 3, padding=1))
@@ -100,15 +105,19 @@ class DecoderBlock(nn.Module):
         self.dec.append(nn.ReLU(inplace=True))
 
     def forward(self, s, x):
-        # We can't simply apply skip connectivity, because shapes don't match.
-        # On the input side, we have two cross-sections (2*n) but we need (n*n).
-        # This increases dimensionality by multiplying out relevant terms
-        d = s.shape[2]
-        sx = s[:,:,:d//2].exp()
-        sy = s[:,:,d//2:].exp()
-        up_d = torch.einsum('bci,bcj->bcij', sx, sy).log()
 
-        c = torch.cat((up_d, x), dim=1)
+        if self.skip:
+            # We can't simply apply skip connectivity, because shapes don't match.
+            # On the input side, we have two cross-sections (2*n) but we need (n*n).
+            # This increases dimensionality by multiplying out relevant terms
+            d = s.shape[2]
+            sx = s[:,:,:d//2].exp()
+            sy = s[:,:,d//2:].exp()
+            up_d = torch.einsum('bci,bcj->bcij', sx, sy).log()
+
+            c = torch.cat((up_d, x), dim=1)
+        else:
+            c = x
 
         x = self.dec[0](c)
         for l in self.dec[1:]:
@@ -117,7 +126,7 @@ class DecoderBlock(nn.Module):
         return x
 
 class Model(nn.Module):
-    def __init__(self, layers=6, block_layers=3, channels=16, boundl=256, outl=128, bottleneck=512, dropout=0.1):
+    def __init__(self, layers=6, block_layers=3, channels=16, boundl=256, outl=128, bottleneck=512, dropout=0.1, skip=True):
         super().__init__()
 
         self.layers = layers
@@ -152,10 +161,10 @@ class Model(nn.Module):
         # Note due to varying number of cross-sections, we might need to do less upscaling
         # For example input two boundaries (256), we need to upscale one less time to get to 128.
         for _ in range(0, layers-(boundl//outl), 1):
-            self.dec.append(DecoderBlock(channels, channels//2, layers=block_layers))
+            self.dec.append(DecoderBlock(channels, channels//2, layers=block_layers, skip=skip))
             channels = channels//2
         
-        self.dec.append(DecoderBlock(channels, 1, layers=block_layers))
+        self.dec.append(DecoderBlock(channels, 1, layers=block_layers, skip=skip))
         self.post = nn.ConvTranspose2d(1, 1, 1, stride=1)
 
     def forward(self, x):
@@ -180,7 +189,7 @@ class Model(nn.Module):
 #batch = 4
 #channels = 16
 #input1d = 256
-net = Model(layers=8, channels=16, boundl=boundl, bottleneck=512)
+net = Model(layers=6, channels=8, boundl=boundl, bottleneck=512)
 #net(torch.randn(batch, input1d)).shape
 inp = torch.Tensor([ts[0][0][:boundl], ts[1][0][:boundl]])
 print(net(inp).shape)
@@ -234,26 +243,21 @@ for epoch in range(999):  # loop over the dataset multiple times
     if vl<min_val_loss:
         min_val_loss = vl
         early_stop_counter = 0
-        print('saving...')
+        print('saving and exporting model...')
         torch.save(net, 'models/%s' % (mname) )
+
+        evalnet = torch.load('models/%s' % (mname)).eval()
+        dummy_input = torch.randn(1, boundl, device="cuda")
+        input_names = [ "edge" ]
+        output_names = [ "tile" ]
+        torch.onnx.export(
+            evalnet, dummy_input, "ui/dist/%s.onnx" % (mname),
+            verbose=False, input_names=input_names, output_names=output_names)
     else:
         early_stop_counter += 1
 
     if early_stop_counter>=3:
         break
-
-#%%
-
-net = torch.load('models/%s' % (mname)).eval()
-print(net)
-
-dummy_input = torch.randn(1, boundl, device="cuda")
-input_names = [ "edge" ]
-output_names = [ "tile" ]
-
-torch.onnx.export(
-    net, dummy_input, "ui/dist/%s.onnx" % (mname),
-    verbose=True, input_names=input_names, output_names=output_names)
 
 #%%
 
@@ -277,3 +281,42 @@ with torch.no_grad():
 
 l = running_loss/len(test)
 print("test: %.4f" % (l))
+
+# data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif - what is so special about this file that the network converges?
+# is it simply small?
+
+# 20k batch 64 delta 0.25
+# Model(layers=6, channels=16, boundl=boundl, bottleneck=512)
+# val 0.0022 test3 0.0852
+
+# 20k batch 64 delta 0.25
+# Model(layers=8, channels=4, boundl=boundl, bottleneck=512)
+# val 0.0528 test3 0.1815
+
+# 20k batch 64 delta 0.25
+# Model(layers=8, channels=4, boundl=boundl, bottleneck=512, block_layers=1)
+# also stuck on 0.05 loss, not converging further
+
+# 20k batch 64 delta 0.25
+# Model(layers=6, channels=16, boundl=boundl, bottleneck=1024, dropout=0.5)
+# val 0.0036 test3 0.0866 as 18-256-4-1.onnx this is actualy quite good, and requires less data...
+
+# 20k batch 128 delta 0.25
+# Model(layers=6, channels=16, boundl=boundl, bottleneck=512)
+# 10 files converge very slowly and seem stuck at 0.05
+
+# how about back to 10 files, but stride 20?
+# 100k batch 64
+# does not converge
+
+# 87k 7 various files batch 64, stride 20
+# val 0.0290 test 0.0642 bad
+
+# 88k, 1 file, stride 8, but multiply skip by 0.1
+# not converging
+
+# 88k, 1 file, stride 8 
+# Model(layers=6, channels=8, boundl=boundl, bottleneck=512) - less channels
+# val 0.0055 test3 0.0620 as dist/18-256-4-2.onnx kinda ok but still sad
+
+# I think this is a lost cause :) Move on!
