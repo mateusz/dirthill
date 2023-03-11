@@ -140,6 +140,8 @@ conv1 = nn.Sequential(
 inp = torch.Tensor([ts[0][0][:boundl], ts[1][0][:boundl]])
 conv1(inp).shape
 
+print(conv1)
+
 #%%
 
 net = conv1.to(device)

@@ -18,12 +18,21 @@ boundl=256
 rescale=4
 mname='18-%d-%d' % (boundl, rescale)
 
-report_steps = 100
+report_steps = 500
 
-batch=64
+batch=128
 #%%
 ts = terrain_set2.TerrainSet([
+        'data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x43y466_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x44y465_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x45y466_OR_RogueSiskiyouNF_2019_B19.tif',
         'data/USGS_1M_10_x46y466_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x46y467_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x47y465_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x47y466_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x49y465_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x49y466_OR_RogueSiskiyouNF_2019_B19.tif',
     ],
     size=n, stride=8, rescale=rescale, min_elev_diff=20.0)
 t,v = torch.utils.data.random_split(ts, [0.9, 0.1])
@@ -94,17 +103,24 @@ class DecoderBlock(nn.Module):
             ch = in_ch
 
         self.dec = nn.ModuleList()
-        for _ in range(0, layers, 1):
+        for _ in range(0, layers-1, 1):
             self.dec.append(nn.Conv2d(ch, out_ch, 3, padding=1))
             self.dec.append(nn.BatchNorm2d(out_ch))
             self.dec.append(nn.ReLU(inplace=True))
             ch = out_ch
 
-        self.dec.append(nn.ConvTranspose2d(out_ch, out_ch, 3, stride=2, padding=1, output_padding=1))
+        if layers==1:
+            ch = in_ch
+            if skip:
+                ch = ch*2
+        else:
+            ch = out_ch
+
+        self.dec.append(nn.ConvTranspose2d(ch, out_ch, 3, stride=2, padding=1, output_padding=1))
         self.dec.append(nn.BatchNorm2d(out_ch))
         self.dec.append(nn.ReLU(inplace=True))
 
-    def forward(self, s, x):
+    def forward(self, x, s=False):
 
         if self.skip:
             # We can't simply apply skip connectivity, because shapes don't match.
@@ -114,6 +130,8 @@ class DecoderBlock(nn.Module):
             sx = s[:,:,:d//2].exp()
             sy = s[:,:,d//2:].exp()
             up_d = torch.einsum('bci,bcj->bcij', sx, sy).log()
+
+            print(up_d.shape, x.shape)
 
             c = torch.cat((up_d, x), dim=1)
         else:
@@ -145,7 +163,7 @@ class Model(nn.Module):
             size = size//2
             self.enc.append(EncoderBlock(channels//2, channels, layers=block_layers))
 
-        print('inner shape: %dx%d -> %dx%dx%d (%d->%d->%d)' % (channels,size,channels,size,size,channels*size,bottleneck,channels*size*size))
+        print('inner shape: %dx%d -> %dx%dx%d (%d->%d->%d)' % (channels,size,channels,size//2,size//2,channels*size,bottleneck,channels*size))
         self.bottleneck = nn.Sequential(
             nn.Flatten(),
 
@@ -153,8 +171,13 @@ class Model(nn.Module):
             nn.ReLU(inplace=True),
             nn.Dropout(dropout),
 
-            nn.Linear(bottleneck, channels*size*size),
-            nn.Unflatten(1, (channels, size, size)),
+            nn.Linear(bottleneck, channels*size),
+            nn.Unflatten(1, (channels, size//2, size//2)),
+
+            # No skip available
+            # Note perhaps we can increase above Linear to channels*size*size and skip this,
+            # but historically this hasn't worked well.
+            DecoderBlock(channels, channels, layers=block_layers, skip=False),
         )
 
         self.dec = nn.ModuleList()
@@ -164,8 +187,7 @@ class Model(nn.Module):
             self.dec.append(DecoderBlock(channels, channels//2, layers=block_layers, skip=skip))
             channels = channels//2
         
-        self.dec.append(DecoderBlock(channels, 1, layers=block_layers, skip=skip))
-        self.post = nn.ConvTranspose2d(1, 1, 1, stride=1)
+        self.post = nn.ConvTranspose2d(channels, 1, 3, stride=2, padding=1, output_padding=1)
 
     def forward(self, x):
         x = self.pre(x)
@@ -177,9 +199,10 @@ class Model(nn.Module):
 
         x = self.bottleneck(x)
 
+        # We don't want the deepest one, which is really the a part of the bottleneck
         for l in self.dec:
             s = skips.pop()
-            x = l(s,x)
+            x = l(x,s)
 
         x = self.post(x)
 
@@ -189,10 +212,11 @@ class Model(nn.Module):
 #batch = 4
 #channels = 16
 #input1d = 256
-net = Model(layers=6, channels=8, boundl=boundl, bottleneck=512)
+net = Model(layers=6, channels=16, boundl=boundl, bottleneck=512, block_layers=1, skip=False)
 #net(torch.randn(batch, input1d)).shape
 inp = torch.Tensor([ts[0][0][:boundl], ts[1][0][:boundl]])
 print(net(inp).shape)
+
 
 #%%
 
