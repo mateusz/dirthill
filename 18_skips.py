@@ -18,8 +18,7 @@ boundl=256
 rescale=4
 mname='18-%d-%d' % (boundl, rescale)
 
-report_steps = 500
-
+report_steps = 100
 batch=128
 #%%
 ts = terrain_set2.TerrainSet([
@@ -27,7 +26,7 @@ ts = terrain_set2.TerrainSet([
         'data/USGS_1M_10_x43y466_OR_RogueSiskiyouNF_2019_B19.tif',
         'data/USGS_1M_10_x44y465_OR_RogueSiskiyouNF_2019_B19.tif',
         'data/USGS_1M_10_x45y466_OR_RogueSiskiyouNF_2019_B19.tif',
-        'data/USGS_1M_10_x46y466_OR_RogueSiskiyouNF_2019_B19.tif',
+        'data/USGS_1M_10_x46y466_OR_RogueSiskiyouNF_2019_B19.tif', # single
         'data/USGS_1M_10_x46y467_OR_RogueSiskiyouNF_2019_B19.tif',
         'data/USGS_1M_10_x47y465_OR_RogueSiskiyouNF_2019_B19.tif',
         'data/USGS_1M_10_x47y466_OR_RogueSiskiyouNF_2019_B19.tif',
@@ -131,8 +130,6 @@ class DecoderBlock(nn.Module):
             sy = s[:,:,d//2:].exp()
             up_d = torch.einsum('bci,bcj->bcij', sx, sy).log()
 
-            print(up_d.shape, x.shape)
-
             c = torch.cat((up_d, x), dim=1)
         else:
             c = x
@@ -163,7 +160,7 @@ class Model(nn.Module):
             size = size//2
             self.enc.append(EncoderBlock(channels//2, channels, layers=block_layers))
 
-        print('inner shape: %dx%d -> %dx%dx%d (%d->%d->%d)' % (channels,size,channels,size//2,size//2,channels*size,bottleneck,channels*size))
+        #print('inner shape: %dx%d -> %dx%dx%d (%d->%d->%d)' % (channels,size,channels,size//2,size//2,channels*size,bottleneck,channels*size))
         self.bottleneck = nn.Sequential(
             nn.Flatten(),
 
@@ -171,23 +168,24 @@ class Model(nn.Module):
             nn.ReLU(inplace=True),
             nn.Dropout(dropout),
 
-            nn.Linear(bottleneck, channels*size),
-            nn.Unflatten(1, (channels, size//2, size//2)),
+            nn.Linear(bottleneck, channels*size*size),
+            nn.Unflatten(1, (channels, size, size)),
 
-            # No skip available
-            # Note perhaps we can increase above Linear to channels*size*size and skip this,
-            # but historically this hasn't worked well.
-            DecoderBlock(channels, channels, layers=block_layers, skip=False),
+            # We could instead do this, which might save us some MB
+            #nn.Linear(bottleneck, channels*size),
+            #nn.Unflatten(1, (channels, size//2, size//2)),
+            #DecoderBlock(channels, channels, layers=block_layers, skip=False),
         )
 
         self.dec = nn.ModuleList()
         # Note due to varying number of cross-sections, we might need to do less upscaling
         # For example input two boundaries (256), we need to upscale one less time to get to 128.
-        for _ in range(0, layers-(boundl//outl), 1):
+        for _ in range(0, layers+1-(boundl//outl), 1):
             self.dec.append(DecoderBlock(channels, channels//2, layers=block_layers, skip=skip))
             channels = channels//2
-        
-        self.post = nn.ConvTranspose2d(channels, 1, 3, stride=2, padding=1, output_padding=1)
+
+        # Final channel squash without ReLU, as in u-net
+        self.post = nn.Conv2d(channels, 1, 1, stride=1)
 
     def forward(self, x):
         x = self.pre(x)
@@ -212,11 +210,10 @@ class Model(nn.Module):
 #batch = 4
 #channels = 16
 #input1d = 256
-net = Model(layers=6, channels=16, boundl=boundl, bottleneck=512, block_layers=1, skip=False)
+net = Model(layers=6, channels=16, boundl=boundl, bottleneck=512, block_layers=3, skip=False)
 #net(torch.randn(batch, input1d)).shape
 inp = torch.Tensor([ts[0][0][:boundl], ts[1][0][:boundl]])
 print(net(inp).shape)
-
 
 #%%
 
@@ -344,3 +341,25 @@ print("test: %.4f" % (l))
 # val 0.0055 test3 0.0620 as dist/18-256-4-2.onnx kinda ok but still sad
 
 # I think this is a lost cause :) Move on!
+
+# Ok, tried matching this architecture with 06, and it does converge, so I must have done something wrong.
+# Could be that nn.ConvTranspose2d(1,1,1) at the end. Refactor.
+
+# check a like-for-like converges:
+# squares 600k, ch 16, latent 512, dropout 0.1, batch 128, huber loss 0.25: val 0.0079, test 0.0513
+# good we can progress.
+
+# After cleanups (add final 1-1 conv layer, remove odd Decoder block in bottleneck, upscale using dense instead of conv):
+# squares 20k, ch 16, latent 512, dropout 0.1, batch 64, huber loss 0.25, layers 1, skips True: val 0.0024, test3 0.0826 (overfit compared to 06, aiming at around 0.05)
+# squares 600k, ch 16, latent 512, dropout 0.1, batch 128, huber loss 0.25, layers 1, skips False: looks like it's converging, let's move on
+# squares 600k, ch 16, latent 512, dropout 0.1, batch 128, huber loss 0.25, layers 1, skips True: also looks like its converging
+# squares 88k, ch 16, latent 512, dropout 0.1, batch 64, huber loss 0.25, layers 1, skips True: val 0.0018 test3 0.0592 (just x46y466)
+# squares 88k, ch 16, latent 512, dropout 0.1, batch 64, huber loss 0.25, layers 3, skips True: val 0.0019 test3 0.0609 as above but smooth 18-256-4-3.onnx
+# Note: above model around 0.0060 is quite smooth (addition of layers?)
+
+# Now lets try more data, less stride - it's possible validation is busted because it contains strided variants, so the training can "cheat" (esp the test comes up so high)
+# squares 40k (10xfiles, stride 32), ch 16, latent 512, dropout 0.1, batch 64, huber loss 0.25, layers 3, skips False: val 0.0196 test3 0.0469 best test3 so far, but boring
+
+# squares 600k, ch 16, latent 512, dropout 0.1, batch 128, huber loss 0.25, layers 3, skips False: val test3 boring, too smooth.
+
+# todo: produce strided variants AFTER val split?
