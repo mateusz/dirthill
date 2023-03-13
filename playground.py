@@ -34,3 +34,10 @@ y = t[:,:,d//2:].exp()
 
 torch.einsum('bci,bcj->bcij', x, y).log()
 
+#%%
+
+rnn = torch.nn.LSTM(4, 8)
+input = torch.randn(1, 10, 4)
+output, (hn, cn) = rnn(input)
+
+print(output.shape, hn.shape, cn.shape)

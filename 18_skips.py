@@ -18,7 +18,7 @@ boundl=256
 rescale=4
 mname='18-%d-%d' % (boundl, rescale)
 
-report_steps = 100
+report_steps = 300
 batch=128
 #%%
 ts = terrain_set2.TerrainSet([
@@ -174,7 +174,9 @@ class Model(nn.Module):
             # We could instead do this, which might save us some MB
             #nn.Linear(bottleneck, channels*size),
             #nn.Unflatten(1, (channels, size//2, size//2)),
-            #DecoderBlock(channels, channels, layers=block_layers, skip=False),
+            #nn.ConvTranspose2d(channels, channels, 3, stride=2, padding=1, output_padding=1)
+            # or
+            #DecoderBlock(channels, channels, layers=block_layers, skip=False)
         )
 
         self.dec = nn.ModuleList()
@@ -210,7 +212,7 @@ class Model(nn.Module):
 #batch = 4
 #channels = 16
 #input1d = 256
-net = Model(layers=6, channels=16, boundl=boundl, bottleneck=512, block_layers=3, skip=False)
+net = Model(layers=5, channels=16, boundl=boundl, bottleneck=256, block_layers=3, skip=False)
 #net(torch.randn(batch, input1d)).shape
 inp = torch.Tensor([ts[0][0][:boundl], ts[1][0][:boundl]])
 print(net(inp).shape)
@@ -360,6 +362,12 @@ print("test: %.4f" % (l))
 # Now lets try more data, less stride - it's possible validation is busted because it contains strided variants, so the training can "cheat" (esp the test comes up so high)
 # squares 40k (10xfiles, stride 32), ch 16, latent 512, dropout 0.1, batch 64, huber loss 0.25, layers 3, skips False: val 0.0196 test3 0.0469 best test3 so far, but boring
 
-# squares 600k, ch 16, latent 512, dropout 0.1, batch 128, huber loss 0.25, layers 3, skips False: val test3 boring, too smooth.
+# squares 600k, ch 16, latent 512, dropout 0.1, batch 128, huber loss 0.25, layers 3, skips False: val 0.0076 test3 0.0526 very smooth and fits edges well, could be good for tiled gen, stable, as 18-256-4-4.onnx
+# squares 600k, ch 16, latent 512, dropout 0.1, batch 128, huber loss 0.25, layers 3, skips True: val 0.0059, test3 0.0532 interesting, but square, and a bit unstable 18-256-4-5.onnx
+
+# Now trying to match 18-256-4-4 performance, with smaller size.
+# net = Model(layers=5, channels=8, boundl=boundl, bottleneck=256, block_layers=2, skip=False), val: 0.0143, test: 0.0482, bad
+# net = Model(layers=6, channels=16, boundl=boundl, bottleneck=256, block_layers=3, skip=False, val: 0.0070, test3: 0.0526, fine, 18-256-4-6.onnx
+# net = Model(layers=5, channels=16, boundl=boundl, bottleneck=256, block_layers=3, skip=False, val: 0.0073, test3 0.0508, some fun wrinkles, still good as 18-256-4-7.onnx
 
 # todo: produce strided variants AFTER val split?
