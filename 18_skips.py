@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torch
+from pytorch_msssim import ssim, ms_ssim, SSIM, MS_SSIM
 
 torch.manual_seed(1)
 
@@ -18,20 +19,20 @@ boundl=256
 rescale=4
 mname='18-%d-%d' % (boundl, rescale)
 
-report_steps = 300
-batch=128
+report_steps = 50
+batch=64
 #%%
 ts = terrain_set2.TerrainSet([
-        'data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
-        'data/USGS_1M_10_x43y466_OR_RogueSiskiyouNF_2019_B19.tif',
-        'data/USGS_1M_10_x44y465_OR_RogueSiskiyouNF_2019_B19.tif',
-        'data/USGS_1M_10_x45y466_OR_RogueSiskiyouNF_2019_B19.tif',
+        #'data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif',
+        #'data/USGS_1M_10_x43y466_OR_RogueSiskiyouNF_2019_B19.tif',
+        #'data/USGS_1M_10_x44y465_OR_RogueSiskiyouNF_2019_B19.tif',
+        #'data/USGS_1M_10_x45y466_OR_RogueSiskiyouNF_2019_B19.tif',
         'data/USGS_1M_10_x46y466_OR_RogueSiskiyouNF_2019_B19.tif', # single
-        'data/USGS_1M_10_x46y467_OR_RogueSiskiyouNF_2019_B19.tif',
-        'data/USGS_1M_10_x47y465_OR_RogueSiskiyouNF_2019_B19.tif',
-        'data/USGS_1M_10_x47y466_OR_RogueSiskiyouNF_2019_B19.tif',
-        'data/USGS_1M_10_x49y465_OR_RogueSiskiyouNF_2019_B19.tif',
-        'data/USGS_1M_10_x49y466_OR_RogueSiskiyouNF_2019_B19.tif',
+        #'data/USGS_1M_10_x46y467_OR_RogueSiskiyouNF_2019_B19.tif',
+        #'data/USGS_1M_10_x47y465_OR_RogueSiskiyouNF_2019_B19.tif',
+        #'data/USGS_1M_10_x47y466_OR_RogueSiskiyouNF_2019_B19.tif',
+        #'data/USGS_1M_10_x49y465_OR_RogueSiskiyouNF_2019_B19.tif',
+        #'data/USGS_1M_10_x49y466_OR_RogueSiskiyouNF_2019_B19.tif',
     ],
     size=n, stride=8, rescale=rescale, min_elev_diff=20.0)
 t,v = torch.utils.data.random_split(ts, [0.9, 0.1])
@@ -212,7 +213,7 @@ class Model(nn.Module):
 #batch = 4
 #channels = 16
 #input1d = 256
-net = Model(layers=5, channels=16, boundl=boundl, bottleneck=256, block_layers=3, skip=False)
+net = Model(layers=6, channels=16, boundl=boundl, bottleneck=256, block_layers=1, skip=False)
 #net(torch.randn(batch, input1d)).shape
 inp = torch.Tensor([ts[0][0][:boundl], ts[1][0][:boundl]])
 print(net(inp).shape)
@@ -220,13 +221,18 @@ print(net(inp).shape)
 #%%
 
 net = net.to(device)
-opt = optim.Adam(net.parameters())
+
+opt = optim.Adam(net.parameters(), lr=0.001)
 #lossfn = nn.MSELoss()
 lossfn = nn.HuberLoss(delta=0.25)
+#lossfn = nn.L1Loss()
+ssim_module = SSIM(data_range=1, size_average=True, channel=1)
 
 min_val_loss = 9999999999.0
 early_stop_counter = 0
 for epoch in range(999):  # loop over the dataset multiple times
+    running_crit = 0.0
+    running_perc = 0.0
     running_loss = 0.0
     net.train()
 
@@ -240,16 +246,26 @@ for epoch in range(999):  # loop over the dataset multiple times
         # forward + backward + optimize
         outputs = net(inputs.to(device))
 
-        loss = lossfn(outputs, targets.unsqueeze(1).to(device))
+        ssim_loss = 1.0 - ssim_module((outputs+1.0)/2.0, (targets.unsqueeze(1).to(device)+1.0)/2.0)
+        crit_loss = lossfn(outputs, targets.unsqueeze(1).to(device))
+        loss =  crit_loss + ssim_loss
+
         loss.backward()
         opt.step()
 
         # print statistics
         running_loss += loss.item()
-        if i % report_steps == report_steps-1:
-            print("train: %.4f" % (running_loss/float(report_steps)))
-            running_loss = 0.0
+        running_crit += crit_loss.item()
+        running_perc += ssim_loss.item()
 
+        if i % report_steps == report_steps-1:
+            print("train: %.4f, crit: %.4f, perc: %.4f" % (running_loss/float(report_steps), running_crit/float(report_steps), running_perc/float(report_steps)))
+            running_loss = 0.0
+            running_crit = 0.0
+            running_perc = 0.0
+
+    running_crit = 0.0
+    running_perc = 0.0
     running_loss = 0.0
     net.eval()
     with torch.no_grad():
@@ -257,11 +273,17 @@ for epoch in range(999):  # loop over the dataset multiple times
             inputs, targets = data
             inputs = inputs[:,0:boundl]
             outputs = net(inputs.to(device))
-            loss = lossfn(outputs, targets.unsqueeze(1).to(device))
+
+            ssim_loss = 1.0 - ssim_module((outputs+1.0)/2.0, (targets.unsqueeze(1).to(device)+1.0)/2.0)
+            crit_loss = lossfn(outputs, targets.unsqueeze(1).to(device))
+            loss =  crit_loss + ssim_loss
+
             running_loss += loss.item()
+            running_crit += crit_loss.item()
+            running_perc += ssim_loss.item()
 
     vl = running_loss/len(val)
-    print("val: %.4f" % (vl))
+    print("val: %.4f, crit: %.4f, perc: %.4f" % (running_loss/float(len(val)), running_crit/float(len(val)), running_perc/float(len(val))))
 
     if vl<min_val_loss:
         min_val_loss = vl
@@ -292,18 +314,25 @@ tt = terrain_set2.TerrainSet([
 test = DataLoader(tt, batch_size=batch, shuffle=True,
     num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=4)
 
+running_crit = 0.0
+running_perc = 0.0
 running_loss = 0.0
-lossfn = nn.MSELoss()
 with torch.no_grad():
     for i,data in enumerate(test, 0):
         inputs, targets = data
         inputs = inputs[:,0:boundl]
         outputs = net(inputs.to(device))
-        loss = lossfn(outputs, targets.unsqueeze(1).to(device))
+
+        ssim_loss = 1.0 - ssim_module((outputs+1.0)/2.0, (targets.unsqueeze(1).to(device)+1.0)/2.0)
+        crit_loss = lossfn(outputs, targets.unsqueeze(1).to(device))
+        loss =  crit_loss + ssim_loss
+
         running_loss += loss.item()
+        running_crit += crit_loss.item()
+        running_perc += ssim_loss.item()
 
 l = running_loss/len(test)
-print("test: %.4f" % (l))
+print("test: %.4f, crit: %.4f, perc: %.4f" % (running_loss/float(len(test)), running_crit/float(len(test)), running_perc/float(len(test))))
 
 # data/USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif - what is so special about this file that the network converges?
 # is it simply small?
@@ -367,7 +396,13 @@ print("test: %.4f" % (l))
 
 # Now trying to match 18-256-4-4 performance, with smaller size.
 # net = Model(layers=5, channels=8, boundl=boundl, bottleneck=256, block_layers=2, skip=False), val: 0.0143, test: 0.0482, bad
-# net = Model(layers=6, channels=16, boundl=boundl, bottleneck=256, block_layers=3, skip=False, val: 0.0070, test3: 0.0526, fine, 18-256-4-6.onnx
-# net = Model(layers=5, channels=16, boundl=boundl, bottleneck=256, block_layers=3, skip=False, val: 0.0073, test3 0.0508, some fun wrinkles, still good as 18-256-4-7.onnx
+# net = Model(layers=6, channels=16, boundl=boundl, bottleneck=256, block_layers=3, skip=False, val: 0.0070, test3: 0.0526, fine, 18-256-4-6.onnx -> 33MB, shipped
+# net = Model(layers=5, channels=16, boundl=boundl, bottleneck=256, block_layers=3, skip=False, val: 0.0073, test3 0.0508, some fun wrinkles, boring counter-edge as 18-256-4-7.onnx
+
+# With SSIM
+
+# 88k, batch=64
+# net = Model(layers=6, channels=16, boundl=boundl, bottleneck=256, block_layers=3, skip=False, val: 0.1668 - MAE, converging slowly, and kinda stuck, but didn't see the loss components.
+# net = Model(layers=6, channels=16, boundl=boundl, bottleneck=256, block_layers=1, skip=False, val: 0.0682, crit: 0.0074, perc: 0.0608, test: 0.1392, crit: 0.0223, perc: 0.1169 - back to Huber 0.25+SSIM, kinda interesting but doesn't pass two-waves, as 18-256-4-8.onnx
 
 # todo: produce strided variants AFTER val split?
