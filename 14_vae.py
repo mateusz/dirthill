@@ -150,17 +150,20 @@ opt = optim.Adam(net.parameters())
 def kld(mu, logvar):
     return torch.mean(-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1), dim=0)
 
-def vaeloss(epoch, criterion, kld, annealing=[0.000001, 0.00001, 0.0001]):#[0.0, 0.0001, 0.001]):
+def vaeloss(epoch, kld, annealing=[0.000001, 0.00001, 0.0001]):#[0.0, 0.0001, 0.001]):
     if epoch<len(annealing)-1:
         kld_weight = annealing[epoch]
     else:
         kld_weight = annealing[-1]
 
-    return kld_weight*kld + criterion
+    return kld_weight*kld
 
 ssim_module = SSIM(data_range=1, size_average=True, channel=1)
-#crit_module = nn.HuberLoss(delta=0.25)
+#crit_module = nn.HuberLoss(delta=0.05)
 crit_module = nn.L1Loss()
+
+perc_weight = 1.0
+crit_weight = 0.25
 
 min_val_loss = 9999999999.0
 early_stop_counter = 0
@@ -184,7 +187,7 @@ for epoch in range(999):  # loop over the dataset multiple times
         perc_loss = 1.0 - ssim_module((outputs+1.0)/2.0, (targets.unsqueeze(1).to(device)+1.0)/2.0)
         criterion_loss = crit_module(outputs, targets.unsqueeze(1).to(device))
         kld_loss = kld(mu, logvar)
-        loss = vaeloss(epoch, criterion_loss, kld_loss)# + perc_loss
+        loss = vaeloss(epoch, kld_loss) + perc_weight*perc_loss + crit_weight*criterion_loss
         loss.backward()
         opt.step()
 
@@ -214,7 +217,7 @@ for epoch in range(999):  # loop over the dataset multiple times
             perc_loss = 1.0 - ssim_module((outputs+1.0)/2.0, (targets.unsqueeze(1).to(device)+1.0)/2.0)
             criterion_loss = crit_module(outputs, targets.unsqueeze(1).to(device))
             kld_loss = kld(mu, logvar)
-            loss = vaeloss(epoch, criterion_loss, kld_loss)# + perc_loss
+            loss = vaeloss(epoch, kld_loss) + perc_weight*perc_loss + crit_weight*criterion_loss
 
             running_criterion += criterion_loss.item()
             running_kld += kld_loss.item()
@@ -277,7 +280,8 @@ with torch.no_grad():
         perc_loss = 1.0 - ssim_module((outputs+1.0)/2.0, (targets.unsqueeze(1).to(device)+1.0)/2.0)
         criterion_loss = crit_module(outputs, targets.unsqueeze(1).to(device))
         kld_loss = kld(mu, logvar)
-        loss = vaeloss(epoch, criterion_loss, kld_loss)# + perc_loss
+        loss = vaeloss(epoch, kld_loss) + perc_weight*perc_loss + crit_weight*criterion_loss
+        
 
         running_criterion += criterion_loss.item()
         running_kld += kld_loss.item()
@@ -297,7 +301,8 @@ print("test: l=%.4f, crit=%.4f, kld=%.4f, perc=%.4f" % (running_loss/len(test), 
 # test: l=0.1482, crit=0.0220, kld=58.7581, perc=0.1203 - smooth and uninteresting. Maybe MAE worked in this case? Latent 2048 is impractical. as 14-256-4-1.onnx
 
 # Back to mae
-# val: l=0.1116, crit=0.0587, kld=119.4586, perc=0.0410, test: l=0.3031, crit=0.1683, kld=118.2967, perc=0.1229 - bad loss
+# val: l=0.1116, crit=0.0587, kld=119.4586, perc=0.0410
+# test: l=0.3031, crit=0.1683, kld=118.2967, perc=0.1229 - bad loss
 
 # latent=512
 # val: l=0.1134, crit=0.0605, kld=108.7220, perc=0.0420
@@ -315,6 +320,58 @@ print("test: l=%.4f, crit=%.4f, kld=%.4f, perc=%.4f" % (running_loss/len(test), 
 # I really like the shape of the rivers!
 
 # Try huber with lower delta, without ssim
+# delta=0.25, bad, does not converge
 
+# back to mae+ssim, latent = 768
+# val: l=0.1076, crit=0.0571, kld=109.7579, perc=0.0395
+# test: l=0.2962, crit=0.1668, kld=97.2646, perc=0.1197
+# too many wrinkles!
 
-# latent = 1024
+# back to 512, and annealing [0.000001, 0.00001, 0.001] (increase KLD weight)
+# Nah, too smooth again
+# val: l=0.2279, crit=0.1323, kld=442.9779, perc=0.0912
+# test: l=0.3152, crit=0.1715, kld=27.9546, perc=0.1157
+
+# back to 256 (because we didn't try this with MAE+SSIM, we want slightly more smooth), annealing again [0.000001, 0.00001, 0.0001]
+# val: l=0.1092, crit=0.0571, kld=122.2885, perc=0.0399
+# test: l=0.2998, crit=0.1666, kld=114.6881, perc=0.1217
+# alright, rivers not quite ,but otherwise smooth, as 14-256-4-4.onnx
+
+# 1024
+# val: l=0.1280, crit=0.0691, kld=107.0791, perc=0.0482
+# test: l=0.3008, crit=0.1698, kld=100.3195, perc=0.1209
+# no better. as ui/dist/14-256-4-5.onnx
+
+# 512, 2*mae - meh, same
+# val: l=0.2106, crit=0.1434, kld=159.8372, perc=0.0513
+# test: l=0.4703, crit=0.3356, kld=151.6003, perc=0.1196
+
+# 0.25*mae
+# val: l=0.0670, crit=0.0167, kld=64.5874, perc=0.0438
+# test: l=0.1704, crit=0.0424, kld=61.1409, perc=0.1219
+# nice! rivers are there, pretty smooth, responds to camel test. as 14-256-4-6.onnx 23MB too!
+
+# 0.1*mae
+# val: l=0.0588, crit=0.0072, kld=54.8779, perc=0.0461
+# test: l=0.1409, crit=0.0168, kld=53.1220, perc=0.1188
+# seems worse on camel test ... 14-256-4-7.onnx
+
+# no mae, just ssim + kld
+# val: l=0.0473, crit=0.0069, kld=51.7395, perc=0.0421
+# test: l=0.1256, crit=0.0169, kld=50.3789, perc=0.1206
+# a bit of mae seems good. So far I like -6 the most. as 14-256-4-8.onnx
+
+# note, here changed back to displaying pre-weighted losses for crit and perc (so crit will be higher)
+
+# back to 0.25*mae, try 0.0005 kld
+# val: l=0.1325, crit=0.1408, kld=320.3748, perc=0.0941
+# test: l=0.1729, crit=0.1738, kld=29.6024, perc=0.1146
+# shit :)
+
+# notes for check-sheet:
+# river test (far and near)
+# camel test
+# v-shaped valleys / and \
+# hill
+# hole
+# noise
