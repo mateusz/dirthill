@@ -163,7 +163,7 @@ ssim_module = SSIM(data_range=1, size_average=True, channel=1)
 crit_module = nn.L1Loss()
 
 perc_weight = 1.0
-crit_weight = 0.25
+crit_weight = 0.1
 
 min_val_loss = 9999999999.0
 early_stop_counter = 0
@@ -354,12 +354,12 @@ print("test: l=%.4f, crit=%.4f, kld=%.4f, perc=%.4f" % (running_loss/len(test), 
 # 0.1*mae
 # val: l=0.0588, crit=0.0072, kld=54.8779, perc=0.0461
 # test: l=0.1409, crit=0.0168, kld=53.1220, perc=0.1188
-# seems worse on camel test ... 14-256-4-7.onnx
+# seems even better. as 14-256-4-7.onnx
 
 # no mae, just ssim + kld
 # val: l=0.0473, crit=0.0069, kld=51.7395, perc=0.0421
 # test: l=0.1256, crit=0.0169, kld=50.3789, perc=0.1206
-# a bit of mae seems good. So far I like -6 the most. as 14-256-4-8.onnx
+# fails camel test - a bit of mae is good. as 14-256-4-8.onnx
 
 # note, here changed back to displaying pre-weighted losses for crit and perc (so crit will be higher)
 
@@ -368,6 +368,13 @@ print("test: l=%.4f, crit=%.4f, kld=%.4f, perc=%.4f" % (running_loss/len(test), 
 # test: l=0.1729, crit=0.1738, kld=29.6024, perc=0.1146
 # shit :)
 
+# 0.1*mae, latent 256 ( try to reduce size) vs -7
+# val: l=0.0527, crit=0.0644, kld=58.6968, perc=0.0404
+# test: l=0.1423, crit=0.1681, kld=56.2068, perc=0.1198
+# alright, but a bit unstable. as 14-256-4-9.onnx
+
+# conclusion: 0.1*mae + 1.0*ssim + 0.0001*kld seems good, with 512 latent space, but needs a more robust qualitative comparison.
+
 # notes for check-sheet:
 # river test (far and near)
 # camel test
@@ -375,3 +382,4 @@ print("test: l=%.4f, crit=%.4f, kld=%.4f, perc=%.4f" % (running_loss/len(test), 
 # hill
 # hole
 # noise
+# counter-edge test
