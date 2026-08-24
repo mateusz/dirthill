@@ -1,0 +1,1457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>dirthill — inferring terrain from cross-sections</title>
+<meta name="description" content="A build log for dirthill: generating 3D terrain from hand-drawn elevation cross-sections with convolutional networks, shipped to the browser as ONNX and WASM." />
+<style>
+:root {
+  color-scheme: light;
+
+  --paper:      #f4f6f3;
+  --card:       #ffffff;
+  --sunk:       #ecefea;
+  --ink:        #1c242b;
+  --ink-2:      #4e5c66;
+  --ink-3:      #7c8a93;
+  --rule:       #dbe0dc;
+  --rule-2:     #c2cac4;
+
+  --a:          #c8452c;
+  --b:          #1c6899;
+  --terrain:    #6e8f35;
+  --warn:       #a8722a;
+
+  --meter-fill:  #4e5c66;
+  --meter-track: #d3dae0;
+  --crit:       #a4342a;
+
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --step-0: 1rem;
+  --step-1: 1.1875rem;
+  --step-2: 1.5rem;
+  --step-3: 2rem;
+  --step-4: 2.75rem;
+
+  --measure: 68ch;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--step-0);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--b); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:hover { color: var(--a); }
+a:focus-visible { outline: 2px solid var(--b); outline-offset: 2px; border-radius: 2px; }
+
+code, kbd { font-family: var(--font-mono); font-size: 0.875em; }
+code { background: var(--sunk); padding: 0.1em 0.35em; border-radius: 3px; color: var(--ink); }
+
+h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; text-wrap: balance; margin: 0; line-height: 1.2; }
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ---------- AI disclosure ---------- */
+
+.disclosure {
+  margin-top: 24px;
+  padding: 16px 18px;
+  background: var(--sunk);
+  border: 1px solid var(--rule-2);
+  border-left: 3px solid var(--a);
+}
+.disclosure p { margin: 8px 0 0; max-width: 84ch; font-size: 0.9375rem; color: var(--ink-2); }
+.disclosure p:first-of-type { margin-top: 0; }
+.disclosure strong { color: var(--ink); }
+.disclosure ul { margin: 10px 0 0; padding-left: 20px; max-width: 84ch; font-size: 0.875rem; color: var(--ink-2); }
+.disclosure li { margin-top: 5px; }
+
+.ai-note {
+  margin: 14px 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--ink-3);
+  max-width: none;
+}
+
+/* ---------- shell ---------- */
+
+.shell {
+  max-width: 1220px;
+  margin: 0 auto;
+  padding: 0 24px 96px;
+}
+
+.masthead {
+  padding: 56px 0 28px;
+  border-bottom: 2px solid var(--ink);
+}
+.masthead h1 {
+  font-size: var(--step-4);
+  letter-spacing: -0.015em;
+  margin: 10px 0 0;
+}
+.masthead .standfirst {
+  font-family: var(--font-display);
+  font-size: var(--step-2);
+  line-height: 1.4;
+  color: var(--ink-2);
+  max-width: 40ch;
+  margin: 14px 0 0;
+}
+
+.sheetmarks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  margin-top: 34px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+}
+.sheetmarks div { background: var(--paper); padding: 10px 12px; }
+.sheetmarks dt { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+.sheetmarks dd { margin: 3px 0 0; font-family: var(--font-mono); font-size: 0.8125rem; color: var(--ink); }
+.sheetmarks dd a { text-decoration: none; border-bottom: 1px solid var(--rule-2); }
+
+/* ---------- layout ---------- */
+
+.body-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 40px;
+  margin-top: 40px;
+  align-items: start;
+}
+@media (min-width: 1000px) {
+  .body-grid { grid-template-columns: 176px minmax(0, 1fr); gap: 56px; }
+  .toc { position: sticky; top: 28px; }
+}
+
+.toc { font-size: 0.8125rem; }
+.toc ol { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.toc a {
+  display: block;
+  padding: 5px 0 5px 11px;
+  border-left: 2px solid var(--rule);
+  color: var(--ink-2);
+  text-decoration: none;
+  line-height: 1.35;
+}
+.toc a:hover { border-left-color: var(--a); color: var(--ink); }
+
+main { display: flex; flex-direction: column; gap: 64px; min-width: 0; }
+
+section { scroll-margin-top: 24px; }
+section > h2 {
+  font-size: var(--step-3);
+  letter-spacing: -0.01em;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule-2);
+}
+section > h2 + .lede { margin-top: 20px; }
+
+h3 { font-size: var(--step-1); margin-top: 38px; }
+h4 { font-family: var(--font-body); font-size: 0.9375rem; font-weight: 650; margin-top: 26px; }
+
+p, ul, ol { max-width: var(--measure); }
+p { margin: 16px 0 0; }
+ul, ol { margin: 16px 0 0; padding-left: 22px; }
+li { margin-top: 7px; }
+li::marker { color: var(--ink-3); }
+
+.lede { font-family: var(--font-display); font-size: var(--step-1); line-height: 1.55; color: var(--ink-2); }
+
+.note {
+  max-width: var(--measure);
+  margin-top: 22px;
+  padding: 14px 16px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--warn);
+  font-size: 0.9375rem;
+  color: var(--ink-2);
+}
+.note strong { color: var(--ink); }
+.note p { margin-top: 8px; max-width: none; }
+.note p:first-child { margin-top: 0; }
+
+/* ---------- figures ---------- */
+
+figure { margin: 34px 0 0; }
+figure svg { display: block; width: 100%; max-width: 100%; height: auto; color: var(--ink-2); }
+.fig-frame {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  padding: 18px;
+  overflow-x: auto;
+}
+.fig-frame svg { min-width: 620px; }
+figcaption {
+  margin-top: 12px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--ink-3);
+  max-width: 76ch;
+}
+figcaption b { color: var(--ink-2); font-weight: 650; }
+
+.plate { margin: 34px 0 0; }
+.plate img { display: block; width: 100%; height: auto; border: 1px solid var(--rule-2); }
+
+/* ---------- tables ---------- */
+
+.table-wrap { margin-top: 26px; overflow-x: auto; border: 1px solid var(--rule); background: var(--card); }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 0.8125rem; }
+caption { caption-side: top; text-align: left; padding: 12px 14px 0; font-size: 0.8125rem; color: var(--ink-3); }
+th, td { text-align: left; padding: 8px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+thead th {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 500;
+  border-bottom: 1px solid var(--rule-2);
+  white-space: nowrap;
+}
+tbody tr:last-child td { border-bottom: 0; }
+td.num, th.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.cfg { font-family: var(--font-mono); font-size: 0.75rem; color: var(--ink-2); }
+
+.chip {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+.chip.ship    { color: var(--terrain); background: #f1f5e8; }
+.chip.keep    { color: var(--b);       background: #eaf2f8; }
+.chip.drop    { color: var(--ink-3);   background: var(--sunk); }
+.chip.bug     { color: var(--warn);    background: #f8f1e6; }
+
+/* ---------- timeline ---------- */
+
+.log { list-style: none; margin: 28px 0 0; padding: 0; max-width: none; }
+.log > li {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 0 20px;
+  padding: 22px 0;
+  border-top: 1px solid var(--rule);
+  margin: 0;
+}
+.log > li:last-child { border-bottom: 1px solid var(--rule); }
+.log .stamp { font-family: var(--font-mono); font-size: 0.75rem; color: var(--ink-3); line-height: 1.5; padding-top: 3px; }
+.log .stamp b { display: block; font-size: 1.375rem; font-weight: 500; color: var(--a); letter-spacing: -0.02em; }
+.log .entry { min-width: 0; }
+.log .entry h3 { margin: 0; font-size: var(--step-1); }
+.log .entry .files { font-family: var(--font-mono); font-size: 0.75rem; color: var(--ink-3); margin-top: 4px; }
+.log .entry p { margin-top: 12px; }
+.log .entry ul { margin-top: 12px; }
+.log .entry .table-wrap { margin-top: 18px; }
+
+.quote {
+  margin: 16px 0 0;
+  padding: 10px 0 10px 14px;
+  border-left: 2px solid var(--a);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--ink-2);
+  max-width: var(--measure);
+}
+.quote cite { display: block; margin-top: 6px; font-family: var(--font-body); font-style: normal; font-size: 0.75rem; color: var(--ink-3); }
+
+/* ---------- next steps ---------- */
+
+.steps { list-style: none; margin: 28px 0 0; padding: 0; max-width: none; display: flex; flex-direction: column; gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+.steps > li { margin: 0; background: var(--card); padding: 18px 20px; }
+.steps h3 { margin: 0; font-size: 1.0625rem; display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
+.steps p { margin-top: 9px; font-size: 0.9375rem; color: var(--ink-2); }
+
+footer.sheet { margin-top: 72px; padding-top: 20px; border-top: 2px solid var(--ink); font-family: var(--font-mono); font-size: 0.75rem; color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 8px 28px; }
+
+/* ---------- assessment ---------- */
+
+.verdict {
+  max-width: none;
+  margin-top: 28px;
+  padding: 22px 24px;
+  background: var(--card);
+  border: 1px solid var(--ink);
+}
+.verdict strong {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1.3125rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.verdict p { max-width: 72ch; }
+
+.assess { list-style: none; margin: 24px 0 0; padding: 0; max-width: none; display: flex; flex-direction: column; gap: 12px; }
+.assess > li {
+  margin: 0;
+  padding: 15px 17px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--rule-2);
+}
+.assess.good > li { border-left-color: var(--terrain); }
+.assess.bad  > li { border-left-color: var(--crit); }
+.assess h4 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  align-items: baseline;
+}
+.assess p { margin-top: 8px; font-size: 0.9375rem; color: var(--ink-2); max-width: 74ch; }
+.assess figure { margin-top: 18px; }
+
+/* ---------- review scorecard ---------- */
+
+.meter { display: inline-flex; gap: 2px; vertical-align: middle; margin-right: 9px; }
+.meter i { display: block; width: 11px; height: 11px; background: var(--meter-track); }
+.meter i.on { background: var(--meter-fill); }
+@media (forced-colors: active) {
+  .meter i { background: Canvas; outline: 1px solid CanvasText; }
+  .meter i.on { background: CanvasText; }
+}
+td .rating { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.75rem; color: var(--ink-2); }
+td.score { white-space: nowrap; }
+
+.tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border: 1px solid var(--rule-2);
+  border-radius: 2px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  position: relative;
+  top: -1px;
+}
+
+.steps h4 { margin: 0; font-family: var(--font-display); font-size: 1.0625rem; font-weight: 600; display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
+.steps h4 + p { margin-top: 9px; }
+.steps p { max-width: 78ch; }
+.steps .ev { font-family: var(--font-mono); font-size: 0.75rem; color: var(--ink-3); margin-top: 8px; }
+
+.calib { margin-top: 26px; padding: 18px 20px; background: var(--sunk); border: 1px solid var(--rule); }
+.calib h3 { margin-top: 0; }
+.calib p, .calib ul { max-width: 74ch; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<header class="masthead">
+  <p class="eyebrow">Build log &middot; Rogue&ndash;Siskiyou 1&nbsp;m DEM &middot; Feb&ndash;Mar 2023</p>
+  <h1>dirthill</h1>
+  <p class="standfirst">Draw two elevation profiles. A convolutional network fills in the hillside between them, in your browser, with no server involved.</p>
+
+  <dl class="sheetmarks">
+    <div><dt>Repository</dt><dd><a href="https://github.com/mateusz/dirthill">mateusz/dirthill</a></dd></div>
+    <div><dt>Live demo</dt><dd><a href="https://mateusz.github.io/dirthill/">mateusz.github.io/dirthill</a></dd></div>
+    <div><dt>Span</dt><dd>09 Feb &ndash; 27 Mar 2023</dd></div>
+    <div><dt>Commits</dt><dd>66</dd></div>
+    <div><dt>Experiments</dt><dd>18 numbered scripts</dd></div>
+    <div><dt>Shipped models</dt><dd>3 &middot; ONNX</dd></div>
+  </dl>
+</header>
+
+
+<aside class="disclosure" id="disclosure" aria-labelledby="disclosure-h">
+  <p class="eyebrow" id="disclosure-h">Disclosure &middot; AI-generated analysis</p>
+  <p><strong>This page was written by an AI model</strong> &mdash; Claude Opus 5 &mdash; on 21 August 2026. It is an automated reading of the <code>dirthill</code> repository. It is not the work of the project&rsquo;s author, and the assessment in <a href="#review">A senior review</a> is not a human peer review.</p>
+  <p>What that means in practice:</p>
+  <ul>
+    <li><b>Nothing was executed.</b> No model was trained, evaluated or benchmarked, and the live demo was not opened. Every loss figure on this page is quoted from the author&rsquo;s own comments in the source files &mdash; none of it was independently reproduced.</li>
+    <li><b>Claims about how the code behaves were checked by reading it.</b> Descriptions of the dataset, the architectures and the browser runtime come from the source, the git history and those comment logs. That is a weaker form of verification than running the thing, and a few statements here &mdash; such as the water threshold being unreachable, or a checkpoint being overwritten in <code>04</code> &mdash; are inferences from reading control flow, not observations of a live run.</li>
+    <li><b>The review section is one model&rsquo;s opinion.</b> The ratings are judgments, not measurements, and they were produced without the context a colleague would have: what the author was trying to learn, what they already knew, and what they chose to leave undone on purpose. Read it as a starting point for a conversation, not a settled verdict.</li>
+  </ul>
+</aside>
+<div class="body-grid">
+  <nav class="toc" aria-label="Contents">
+    <p class="eyebrow">Contents</p>
+    <ol>
+      <li><a href="#summary">What it does</a></li>
+      <li><a href="#data">The data</a></li>
+      <li><a href="#history">History, 01 &rarr; 18</a></li>
+      <li><a href="#approaches">Approaches &amp; results</a></li>
+      <li><a href="#simulator">Wiring the simulator</a></li>
+      <li><a href="#next">Where it could go</a></li>
+      <li><a href="#review">A senior review</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+<!-- ======================= SUMMARY ======================= -->
+<section id="summary">
+  <h2>What it does</h2>
+
+  <p class="lede">dirthill turns two hand-drawn elevation profiles into a 128&nbsp;&times;&nbsp;128 heightfield. You sketch the skyline along two adjacent edges of a square patch of ground; a convolutional network invents everything inside, and a software 3D renderer shows you the hill 200&nbsp;ms later.</p>
+
+  <p>The whole thing runs client-side. A PyTorch model is exported to ONNX, executed by <a href="https://onnxruntime.ai/">onnxruntime-web</a>, and driven by a UI compiled from Go to WebAssembly &mdash; 2D drawing surfaces via <a href="https://github.com/hajimehoshi/ebiten">Ebiten</a>, the 3D terrain via <a href="https://github.com/SolarLune/tetra3d">Tetra3D</a>&rsquo;s software rasteriser. There is no backend, no API key and no telemetry: the page downloads a model and does the inference in the tab.</p>
+
+  <p>The training data is real ground. Every model was fitted on 1-metre USGS lidar elevation of the Rogue River&ndash;Siskiyou National Forest in southern Oregon, so what the network has learned is the specific grammar of one landscape: how ridges taper, how gullies converge, and &mdash; the most striking emergent behaviour in the whole project &mdash; where water would run.</p>
+
+  <figure class="plate">
+    <img src="profiles.png" alt="Four screenshots of the dirthill demo. Each shows a green-to-yellow 3D terrain patch generated from two drawn elevation profiles, shown as a red line along one near edge and a blue line along the other, with the two drawing canvases below." />
+    <figcaption>Four inferences from the shipped VAE model (<code>14-256-4-7</code>). The red and blue lines are the drawn input, standing up in the scene as ribbons; everything else is the network&rsquo;s guess. Note the second panel: two profiles that both slope down toward a shared corner produce a convergent drainage, not a smooth ramp.</figcaption>
+  </figure>
+
+  <h3>The shape of the problem</h3>
+
+  <p>Framed plainly, this is conditional generation of a 2D field from a 1D boundary condition. That framing has two consequences that drove the entire three months of work:</p>
+
+  <ul>
+    <li><b>The task is radically underdetermined.</b> 256 input numbers, 16&nbsp;384 output numbers. Countless terrains satisfy any given pair of edges, so a network trained to minimise squared error will hedge toward the average of all of them, which is a smooth featureless ramp. Almost every experiment below is a different attempt to stop the model hedging.</li>
+    <li><b>Loss and quality come apart.</b> The best test loss and the best-looking terrain were repeatedly different checkpoints. The project's answer was a hand-run qualitative check-sheet &mdash; river, camel, V-valley, hill, hole, noise, counter-edge &mdash; applied to every candidate, with the numbers used only as a coarse filter.</li>
+  </ul>
+
+  <div class="note">
+    <p><strong>On the numbers in this write-up.</strong> Every loss figure here is quoted from the author&rsquo;s own comments in the scripts. They are comparable <em>within</em> a script and not much beyond it: the normalisation changed (raw metres in 01&ndash;05 and 08&ndash;12, per-tile <code>[-1,1]</code> from 06 onward), the objective changed (MSE &rarr; Huber &rarr; MAE+SSIM+KLD), the dataset grew from 20k to 600k tiles, and the held-out file changed twice. Read them as a trail, not a leaderboard.</p>
+  </div>
+</section>
+
+<!-- ======================= DATA ======================= -->
+<section id="data">
+  <h2>The data</h2>
+
+  <p class="lede">One kind of file, sliced very finely: USGS 1-metre lidar digital elevation models, cut into overlapping 128-pixel squares.</p>
+
+  <h3>Source</h3>
+
+  <p>The rasters are USGS 3DEP 1-metre DEM GeoTIFFs, pulled from the <a href="https://www.sciencebase.gov/catalog/item/60d5632cd34ef0ccfc0c8583">ScienceBase catalogue entry</a> cited in <code>18_skips.py</code>. Filenames carry their own provenance:</p>
+
+  <div class="table-wrap">
+    <table>
+      <caption><code>USGS_1M_10_x43y465_OR_RogueSiskiyouNF_2019_B19.tif</code>, decoded.</caption>
+      <thead><tr><th>Fragment</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td class="cfg">1M</td><td>1-metre ground sample distance</td></tr>
+        <tr><td class="cfg">10</td><td>UTM zone 10</td></tr>
+        <tr><td class="cfg">x43y465</td><td>Tile origin in kilometres &mdash; each file is a 10&nbsp;km square, 10&nbsp;000&nbsp;&times;&nbsp;10&nbsp;000 pixels</td></tr>
+        <tr><td class="cfg">OR_RogueSiskiyouNF_2019</td><td>Collection project: Rogue River&ndash;Siskiyou National Forest, Oregon, 2019</td></tr>
+        <tr><td class="cfg">B19</td><td>Delivery batch</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Ten adjacent Rogue&ndash;Siskiyou tiles were used for training, with <code>x50y466</code> held back as the test file (referred to as <em>test3</em> in the later logs, after two earlier choices). Files are opened with <a href="https://rasterio.readthedocs.io/">rasterio</a>, band 1 read as a NumPy array of elevations in metres; nodata arrives as a large negative sentinel, so anything below &minus;10&nbsp;000 marks a hole.</p>
+
+  <p>There were excursions elsewhere &mdash; Carr&ndash;Hirz&ndash;Delta Fires and Alameda County and Southern Sierra in California, McKenzie River in Oregon, Pierce County and Eastern Cascades in Washington &mdash; all still listed, commented out, in <code>terrain_set2.py</code> and <code>06_train_conv.py</code>. Mixing regions made the output worse, not better: the model averaged across incompatible landscapes and went flat. The project retreated to a single forest and stayed there.</p>
+
+  <h3>From raster to training pair</h3>
+
+  <p><code>01_load.py</code> is pure reconnaissance &mdash; open a file, histogram it, hillshade it with matplotlib&rsquo;s <code>LightSource</code>, and plot 512-pixel squares as 3D surfaces to see what a training sample actually looks like. Everything after that is mechanised in two <code>Dataset</code> classes, <code>terrain_set.py</code> and its successor <code>terrain_set2.py</code>.</p>
+
+  <figure>
+    <div class="fig-frame">
+      <svg viewBox="0 0 1000 196" role="img" aria-label="Pipeline from a ten-thousand pixel GeoTIFF through downsampling, windowing, filtering and per-tile normalisation to an edge vector plus target tile.">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 1 L 9 5 L 0 9 z" fill="currentColor" />
+          </marker>
+        </defs>
+        <g stroke="currentColor" stroke-width="1" fill="#ffffff">
+          <rect x="20"  y="44" width="130" height="84" />
+          <rect x="186" y="44" width="130" height="84" />
+          <rect x="352" y="44" width="130" height="84" />
+          <rect x="518" y="44" width="130" height="84" />
+          <rect x="684" y="44" width="130" height="84" />
+          <rect x="850" y="44" width="130" height="84" stroke="#6e8f35" stroke-width="2" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9" letter-spacing="1.2" fill="#7c8a93" text-anchor="middle">
+          <text x="85"  y="63">SOURCE</text>
+          <text x="251" y="63">REDUCE</text>
+          <text x="417" y="63">WINDOW</text>
+          <text x="583" y="63">FILTER</text>
+          <text x="749" y="63">NORMALISE</text>
+          <text x="915" y="63">SPLIT</text>
+        </g>
+        <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#1c242b" text-anchor="middle">
+          <text x="85"  y="88">GeoTIFF</text>
+          <text x="251" y="88">max_pool2d &divide;4</text>
+          <text x="417" y="88">128 &times; 128 window</text>
+          <text x="583" y="88">drop nodata</text>
+          <text x="749" y="88">per tile</text>
+          <text x="915" y="88">edge + target</text>
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#4e5c66" text-anchor="middle">
+          <text x="85"  y="107">10 000&#178; px</text>
+          <text x="251" y="107">1 m &rarr; 4 m/px</text>
+          <text x="417" y="107">stride 8</text>
+          <text x="583" y="107">drop relief &lt; 20 m</text>
+          <text x="749" y="107">min &rarr; &minus;1, max &rarr; +1</text>
+          <text x="915" y="107">512 &amp; 128&#178;</text>
+        </g>
+        <g stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)">
+          <line x1="152" y1="86" x2="182" y2="86" />
+          <line x1="318" y1="86" x2="348" y2="86" />
+          <line x1="484" y1="86" x2="514" y2="86" />
+          <line x1="650" y1="86" x2="680" y2="86" />
+          <line x1="816" y1="86" x2="846" y2="86" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9" fill="#7c8a93" text-anchor="middle">
+          <text x="167" y="34">metres</text>
+          <text x="333" y="34">4 m grid</text>
+          <text x="499" y="34">512 m span</text>
+          <text x="665" y="34">kept tiles</text>
+          <text x="831" y="34">[&minus;1, 1]</text>
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#7c8a93">
+          <text x="352" y="156">&asymp; 20 000 tiles per file at &divide;4 &mdash; ten files reach the 600 000-tile regime used by the final models</text>
+        </g>
+        <line x1="352" y1="140" x2="980" y2="140" stroke="#c2cac4" stroke-width="1" stroke-dasharray="3 3" />
+      </svg>
+    </div>
+    <figcaption><b>The sampling pipeline in <code>terrain_set2.py</code>.</b> Two decisions here shape everything downstream. <code>max_pool2d</code> is a <em>max</em>, not a mean, so downsampling keeps ridge crests and quietly erases narrow gullies. And a stride of 8 against a window of 128 means adjacent samples overlap by 94% &mdash; enormously more training pairs, at the cost discussed under <a href="#next">next steps</a>.</figcaption>
+  </figure>
+
+  <h4>terrain_set.py &mdash; the first version</h4>
+  <p>Elevations stay in metres, offset either by the whole raster&rsquo;s minimum (<code>global_norm</code>) or by each tile&rsquo;s own floor (<code>local_norm</code>). Flags select what the boundary is: all four edges walked as an ordered loop, a single column, or two edges; and whether the target is the full square or just the interior <code>(n-2)&#178;</code>, since <code>04_train_complete_bound.py</code> predicts only the pixels the boundary doesn&rsquo;t already give it.</p>
+
+  <h4>terrain_set2.py &mdash; the one that stuck</h4>
+  <p>Three changes, all of which mattered:</p>
+  <ul>
+    <li><b>Multiple files</b> in one dataset, indexed together as <code>(file, x, y)</code> rows in a pandas frame.</li>
+    <li><b>Per-tile normalisation to <code>[-1, 1]</code></b> &mdash; each tile is rescaled by its own min and half-range. The model therefore never sees absolute elevation and only ever learns shape. This is also exactly what makes the interactive demo possible: whatever range the user draws in becomes the tile&rsquo;s range.</li>
+    <li><b>Boredom rejection.</b> A tile whose total relief is under <code>min_elev_diff</code> (10&nbsp;m, later 20&nbsp;m) is dropped. Flat ground is abundant, trivially predictable, and drags the model toward flatness.</li>
+  </ul>
+
+  <h3>How a boundary becomes 256 numbers</h3>
+
+  <p>The dataset always emits the full 512-value loop around the tile. The training scripts then take <code>inputs[:, 0:boundl]</code> &mdash; the first 128 values for a one-edge model, the first 256 for a two-edge model. Which specific edges those are is worth being precise about, because it determines what the demo asks the user to draw.</p>
+
+  <figure>
+    <div class="fig-frame">
+      <svg viewBox="0 0 720 336" role="img" aria-label="A tile square with its boundary traced as one 512-value loop. The left column is indices 0 to 127 in red, the bottom row is 128 to 255 in blue, and the right column and top row, indices 256 to 511, are dashed and unused.">
+        <defs>
+          <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 9 5 L 0 9 z" fill="currentColor" />
+          </marker>
+        </defs>
+
+        <rect x="60" y="66" width="220" height="220" fill="#ecefea" stroke="none" />
+        <text x="170" y="168" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" fill="#4e5c66" text-anchor="middle">target</text>
+        <text x="170" y="187" font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#7c8a93" text-anchor="middle">128 &times; 128</text>
+        <text x="170" y="206" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#7c8a93" text-anchor="middle">inferred</text>
+
+        <line x1="280" y1="66" x2="280" y2="286" stroke="#7c8a93" stroke-width="1.5" stroke-dasharray="4 4" />
+        <line x1="60"  y1="66" x2="280" y2="66"  stroke="#7c8a93" stroke-width="1.5" stroke-dasharray="4 4" />
+
+        <line x1="60" y1="66"  x2="60" y2="286" stroke="#c8452c" stroke-width="3.5" />
+        <line x1="60" y1="286" x2="280" y2="286" stroke="#1c6899" stroke-width="3.5" />
+
+        <g marker-end="url(#ar2)" stroke-width="1.4">
+          <line x1="44" y1="120" x2="44" y2="232" stroke="#c8452c" color="#c8452c" />
+          <line x1="114" y1="302" x2="226" y2="302" stroke="#1c6899" color="#1c6899" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#7c8a93">
+          <text x="66" y="60">0</text>
+          <text x="66" y="303">127</text>
+          <text x="252" y="303">255</text>
+          <text x="252" y="60">383</text>
+          <text x="286" y="330">511 closes the loop</text>
+        </g>
+        <text x="30" y="180" font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#c8452c" text-anchor="middle" transform="rotate(-90 30 180)">d[:, 0]</text>
+        <text x="170" y="322" font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#1c6899" text-anchor="middle">d[-1, :]</text>
+
+        <g>
+          <rect x="378" y="66" width="300" height="92" fill="#ecefea" stroke="#c2cac4" stroke-width="1" />
+          <polyline points="388,158 388,96 428,110 468,136 508,144 548,131 588,106 628,94 668,90 668,158"
+                    fill="#ffffff" stroke="#c8452c" stroke-width="2.5" />
+          <text x="388" y="82" font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" letter-spacing="1" fill="#7c8a93">EDGE A &mdash; INDICES 0&ndash;127</text>
+        </g>
+        <g>
+          <rect x="378" y="180" width="300" height="92" fill="#ecefea" stroke="#c2cac4" stroke-width="1" />
+          <polyline points="388,272 388,262 428,248 468,224 508,208 548,206 588,222 628,242 668,256 668,272"
+                    fill="#ffffff" stroke="#1c6899" stroke-width="2.5" />
+          <text x="388" y="196" font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" letter-spacing="1" fill="#7c8a93">EDGE B &mdash; INDICES 128&ndash;255</text>
+        </g>
+        <text x="378" y="296" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#4e5c66">The two canvases in the demo, concatenated</text>
+        <text x="378" y="314" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#4e5c66">into one 256-float input tensor.</text>
+        <text x="378" y="332" font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#7c8a93">256&ndash;511 &mdash; the far edges &mdash; are never fed.</text>
+      </svg>
+    </div>
+    <figcaption><b>The boundary is one closed walk, but only half of it is used.</b> <code>terrain_set2</code> concatenates <code>d[:,0]</code>, <code>d[-1,:]</code>, <code>flip(d[:,-1])</code>, <code>flip(d[0,:])</code> &mdash; down the left, right along the bottom, up the right, back along the top. Slicing the first 256 therefore yields the two edges that meet at the near corner, which is why the demo shows two adjacent drawing canvases rather than four. The far edges become the model&rsquo;s <em>output</em>, and their quality is the &ldquo;counter-edge test&rdquo; that decides whether tiles could ever be chained together.</figcaption>
+  </figure>
+</section>
+
+<!-- ======================= HISTORY ======================= -->
+<section id="history">
+  <h2>History, 01 &rarr; 18</h2>
+
+  <p class="lede">Eighteen numbered scripts over seven weeks. Odd numbers are mostly test harnesses, even numbers mostly training runs, and the interesting material is in the comment blocks at the bottom of each file, where every run&rsquo;s losses and verdict were recorded by hand.</p>
+
+  <ol class="log">
+
+    <li>
+      <div class="stamp"><b>01</b>12 Feb</div>
+      <div class="entry">
+        <h3>Look at the ground first</h3>
+        <p class="files">01_load.py</p>
+        <p>Open one GeoTIFF, find its true minimum by masking the nodata sentinel, and subtract it. Histogram a 128-pixel patch. Hillshade it with matplotlib&rsquo;s <code>LightSource</code> at azimuth 270&deg;, elevation 45&deg;. Then loop over 512-pixel squares at stride 128 and plot each as a 3D surface, skipping any square containing a hole.</p>
+        <p>No model, no training &mdash; just building an eye for what one training sample looks like, and confirming that a few hundred metres of forest contains genuinely interesting structure at this resolution.</p>
+      </div>
+    </li>
+
+    <li>
+      <div class="stamp"><b>02</b>12 Feb</div>
+      <div class="entry">
+        <h3>The simplest thing: one hidden layer</h3>
+        <p class="files">02_train.py &middot; 03_test copy.py</p>
+        <p>Boundary vector &rarr; <code>Linear(1024)</code> &rarr; ReLU &rarr; <code>Dropout(0.5)</code> &rarr; <code>Linear(16384)</code> &rarr; ReLU &rarr; reshape. MSE, Adam on defaults, early stopping with patience 3, best checkpoint saved by validation loss. Test MSE came out at 108 with one edge and 54 with two &mdash; the second edge halves the error, which is the first evidence that more boundary genuinely constrains the interior.</p>
+        <p>Two lasting artefacts appear here. The first is the monkey-patch: PyTorch&rsquo;s <code>nn.Unflatten</code> would not export to ONNX cleanly (<a href="https://github.com/pytorch/pytorch/issues/49538">pytorch#49538</a>), so a hand-written <code>View</code> module is assigned over <code>nn.Unflatten</code> globally. That four-line hack is copied into every subsequent script and is the reason any of this reached a browser.</p>
+        <p>The second is <code>03_test</code>&rsquo;s viewer: truth and prediction side by side, each rendered twice from opposite azimuths, with the input profiles overdrawn in red and purple. Underneath it grows a hand-kept index of interesting tiles &mdash; <code>5200 saddle</code>, <code>5300 island</code>, <code>5500 multiple rivers</code> &mdash; which gets pasted into every test script from here on. It is the project&rsquo;s real evaluation set.</p>
+      </div>
+    </li>
+
+    <li>
+      <div class="stamp"><b>04</b>12 Feb</div>
+      <div class="entry">
+        <h3>All four edges, and the dropout discovery</h3>
+        <p class="files">04_train_complete_bound.py &middot; 05_test.py</p>
+        <p>Feed the whole boundary loop (4&nbsp;&times;&nbsp;128 = 512 values) and predict only the interior <code>126&nbsp;&times;&nbsp;126</code>, since the border pixels are given. A plain stack of dense layers, swept by hand. The comment block at the top of the file is the first proper experiment log:</p>
+        <div class="quote">
+          128&rarr;4096, 0.2 = vl 80, overfit<br />
+          128&rarr;4096, 0.0 = vl 5.5 and it learned the texture!<br />
+          128&rarr;1024&rarr;2048&rarr;8192, 0 = vl 3.50, smooth, but produces nontrivial shapes, but still no sharp corners
+          <cite>04_train_complete_bound.py</cite>
+        </div>
+        <p>This is the pivotal early finding, and it is counter-intuitive: <em>removing dropout entirely made the model learn terrain texture.</em> Dropout was averaging away exactly the high-frequency detail that makes terrain look like terrain. The tension it opens &mdash; regularise and go smooth, or don&rsquo;t and go noisy &mdash; is never fully resolved and reappears in every architecture that follows.</p>
+      </div>
+    </li>
+
+    <li>
+      <div class="stamp"><b>06</b>14 Feb</div>
+      <div class="entry">
+        <h3>Convolutions, and the rivers</h3>
+        <p class="files">06_train_conv.py &middot; 07_test.py</p>
+        <p>The architecture that carried the project. A 1D convolutional encoder reads the boundary as a signal &mdash; six blocks of <code>Conv1d(3) &rarr; BatchNorm &rarr; ReLU &rarr; MaxPool(2)</code>, channels 16&nbsp;&rarr;&nbsp;512 &mdash; flattens to a 512-unit bottleneck, then a mirror of six <code>ConvTranspose2d</code> layers inflates a <code>(512, 2, 2)</code> block up to <code>128&nbsp;&times;&nbsp;128</code>. Loss switched from MSE to Huber with &delta;&nbsp;=&nbsp;0.25.</p>
+        <p>The results were the first that felt alive. From the log: the early single-file models <em>&ldquo;are able to simulate rivers &mdash; how the water flows from high to low ground. Up to two rivers per side.&rdquo;</em> Nobody asked for hydrology; drainage networks are simply what minimises error on real lidar.</p>
+        <p>Then a long, careful investigation of a problem that is really about information capacity:</p>
+        <div class="quote">
+          The idea here I think is that the normalised boundary of 256 can only represent a limited amount of squares. If too many squares are in the training set, system starts to average things out. We do want to capture some of the input idiosyncracies, so the set has to be curbed either via upscaling, or by sampling.
+          <cite>06_train_conv.py</cite>
+        </div>
+        <p>Scaling the dataset from 20k to 600k tiles made outputs <em>flatter</em>, not better, until capacity and regularisation were re-tuned to match. The resolution &mdash; recorded as a working rule &mdash; was to prototype architectures on the small dataset with a wide bottleneck and heavy dropout, then re-fit the winner on the large dataset with dropout removed.</p>
+        <p>One more line in this file is pure production wisdom, sitting next to a <code>Dropout(0.1)</code>:</p>
+        <div class="quote">
+          # This prevents instability in UI usage (otherwise single value changes blow up the output!)
+          <cite>06_train_conv.py</cite>
+        </div>
+        <p>A model with no dropout scored better on held-out data and was unusable interactively, because nudging one pixel of a drawn profile could change the whole hill. A small amount of dropout buys smoothness with respect to the <em>input</em> &mdash; which is a property no metric in the project measured, and which decided what shipped.</p>
+      </div>
+    </li>
+
+    <li>
+      <div class="stamp"><b>08</b>15 Feb</div>
+      <div class="entry">
+        <h3>Detour: learn terrain first, conditioning second</h3>
+        <p class="files">08_ae.py &middot; 09_test.py &middot; 10_explore_ae.py &middot; 10b_explore_ae.py</p>
+        <p>A change of plan. Instead of mapping edges straight to terrain, first train a 2D convolutional autoencoder on the tiles themselves &mdash; six down, 256-unit latent, six up &mdash; to learn a general prior for &ldquo;what terrain looks like&rdquo;. Then only a small network needs to learn edges&nbsp;&rarr;&nbsp;latent. Checkpoints are named by their loss: <code>08-full-ae-vl1.36</code>, later <code>08-full-ae-vl0.63</code>.</p>
+        <p><code>10</code> and <code>10b</code> are the most exploratory files in the repository, and they establish that the prior is real:</p>
+        <ul>
+          <li><b>Denoising.</b> Add three sigma of Gaussian noise to a tile; the autoencoder still reconstructs recognisable terrain.</li>
+          <li><b>Inpainting.</b> Replace a tile with random values but keep every second pixel; it reconstructs. This matters for <a href="#next">later ideas</a> &mdash; sparse interior constraints are clearly learnable.</li>
+          <li><b>Latent forensics.</b> Embed the whole dataset, save to parquet, PCA to 50 dimensions, t-SNE to 2, plus per-dimension histograms and a seaborn heatmap of the raw 256 channels, and a straight <code>count_nonzero</code> sparsity check. The ReLU latent turns out sparse and strictly positive, concentrated in a handful of channels.</li>
+        </ul>
+      </div>
+    </li>
+
+    <li>
+      <div class="stamp"><b>11</b>16 Feb</div>
+      <div class="entry">
+        <h3>Bolting the boundary onto a frozen decoder</h3>
+        <p class="files">11_bound_ae.py &middot; 12_test.py</p>
+        <p>Load the autoencoder, slice off the decoder, freeze every parameter, and train <code>Linear(256&rarr;1024) &rarr; Linear(1024&rarr;256)</code> in front of it. Test MSE: 46 with two edges, 98 with one.</p>
+        <p>Against <code>02</code>&rsquo;s dense baseline of 54 that is barely a win, and the reason is visible in <code>10b</code>&rsquo;s latent histograms: regressing into a sparse, strictly-positive, ReLU-shaped latent code is an awkward target, and the frozen decoder can only be reached through it. The commit message is honest &mdash; <em>&ldquo;ff-through-ae decoder, loss around 20, but different shapes&rdquo;</em>. The two-stage idea is not abandoned, though; it comes back variationally in <code>15</code>&ndash;<code>16</code>.</p>
+      </div>
+    </li>
+
+    <li>
+      <div class="stamp"><b>13</b>18 Feb</div>
+      <div class="entry">
+        <h3>Export, and the browser</h3>
+        <p class="files">13_onnx.py &middot; cubetest/ &middot; surfacetest/ &middot; ui/</p>
+        <p><code>13_onnx.py</code> is a bench for pushing checkpoints through <code>torch.onnx.export</code> with named inputs (<code>edge</code>) and outputs (<code>tile</code>) &mdash; the names the JavaScript later binds to. Because ONNX export needs the module definitions in scope, the file also carries verbatim copies of the model classes, which makes it a useful snapshot of every architecture in flight at once.</p>
+        <p>Alongside it, three Go directories appear over four days. <code>cubetest/</code> loads a glTF cube to prove Tetra3D renders in WASM at all. <code>surfacetest/</code> builds a 128&nbsp;&times;&nbsp;128 vertex mesh from a sine function to prove a heightfield of that size is tractable in a software rasteriser. Then <code>ui/</code> becomes the real thing, with commits titled <em>&ldquo;try productionising&rdquo;</em>, <em>&ldquo;plug together&rdquo;</em>, <em>&ldquo;two edges&rdquo;</em>, <em>&ldquo;fix up colors&rdquo;</em>.</p>
+      </div>
+    </li>
+
+    <li>
+      <div class="stamp"><b>14</b>22 Feb</div>
+      <div class="entry">
+        <h3>The VAE, and the loss becomes the experiment</h3>
+        <p class="files">14_vae.py</p>
+        <p>The same <code>Conv1d</code> encoder as <code>06</code>, but the bottleneck splits into two heads &mdash; &mu; and log&nbsp;&sigma;&#178;, each <code>Linear &rarr; ReLU &rarr; Linear</code> at 512 dimensions &mdash; sampled by the reparameterisation trick and fed to the same transposed-convolution decoder. The forward pass returns <code>(output, mu, logvar, z)</code>.</p>
+        <p>From here the architecture barely changes and the <em>objective</em> becomes the object of study. The final recipe is a weighted sum of three terms doing three different jobs:</p>
+        <ul>
+          <li><b>1.0 &times; (1 &minus; SSIM)</b> &mdash; structural similarity, borrowed from image quality assessment via <code>pytorch_msssim</code>. This is what produces plausible <em>texture</em> instead of a smooth average.</li>
+          <li><b>0.1 &times; MAE</b> &mdash; a deliberately small pixel term, just enough to keep the surface anchored to the drawn edges. Removing it entirely gave the best test loss in the whole file and a model that failed the qualitative checks.</li>
+          <li><b>KL divergence, annealed</b> 1e&minus;6 &rarr; 1e&minus;5 &rarr; 1e&minus;4 across the first epochs. Too much and everything goes smooth; too little and the latent stops being usable.</li>
+        </ul>
+        <p>Fifteen variants are logged with their verdicts, and the recurring observation is that loss and quality diverged:</p>
+        <div class="quote">
+          latent=512 &hellip; loss looks bad BUT got the interesting terrain shapes again as with initial ssim
+          <cite>14_vae.py</cite>
+        </div>
+        <p>Which forced the checklist that closes the file &mdash; the project&rsquo;s actual acceptance criteria, written as a to-do:</p>
+        <div class="quote">
+          # notes for check-sheet:<br />
+          # river test (far and near)<br />
+          # camel test<br />
+          # v-shaped valleys / and \<br />
+          # hill<br />
+          # hole<br />
+          # noise<br />
+          # counter-edge test
+          <cite>14_vae.py</cite>
+        </div>
+        <p>The stated conclusion &mdash; <code>0.1&middot;MAE + 1.0&middot;SSIM + 1e-4&middot;KLD</code> at latent 512 &mdash; is what runs on the live page today. This script also starts exporting to ONNX <em>inside the training loop</em>, on every improved epoch, straight into <code>ui/dist/</code>, so the demo always pointed at the current best checkpoint.</p>
+      </div>
+    </li>
+
+    <li>
+      <div class="stamp"><b>15</b>27 Feb</div>
+      <div class="entry">
+        <h3>The two-stage idea, redone variationally</h3>
+        <p class="files">15_vae_full.py &middot; 16_bound_vae.py &middot; 17_explore_vae.py</p>
+        <p><code>15</code> trains a full 2D VAE on tiles &mdash; the <code>08</code> autoencoder with &mu;/&sigma; heads and KL annealed 0&nbsp;&rarr;&nbsp;0.5&nbsp;&rarr;&nbsp;1.0. <code>16</code> then repeats the <code>11</code> experiment against it: freeze the variational decoder, train a small dense network from the boundary into the latent. Commit messages track the struggle to make it converge &mdash; <em>&ldquo;vae start&rdquo;</em>, <em>&ldquo;tweak vae with annealing to converge&rdquo;</em>, <em>&ldquo;remove instability&rdquo;</em>, <em>&ldquo;finishing up with vae, boundl=128&rdquo;</em>.</p>
+        <p><code>17</code> answers the question that <code>11</code> raised, by drawing the variational latent the same way <code>10b</code> drew the plain one. The VAE&rsquo;s latent is dense and centred on zero, where the autoencoder&rsquo;s was sparse and one-sided &mdash; a far friendlier regression target. The end-to-end VAE of <code>14</code> nonetheless won, so the frozen-decoder line stops here.</p>
+      </div>
+    </li>
+
+    <li>
+      <div class="stamp"><b>&mdash;</b>28 Feb<br />&ndash; 6 Mar</div>
+      <div class="entry">
+        <h3>Interlude: making it a thing you can play with</h3>
+        <p class="files">ui/main.go</p>
+        <p>A week of UI work, and the commit titles read like someone enjoying themselves: <em>&ldquo;06 is getting interesting&rdquo;</em>, then <em>&ldquo;06 seems even better - simulating rivers&rdquo;</em>. Substantive changes: a water level so anything below a threshold flattens to a blue plane; <em>&ldquo;shift output to zero&rdquo;</em>, so the terrain always rests on the floor regardless of what the network predicts; experimental touch support with a longer debounce for mobile; the two drawn profiles promoted to independent 3D ribbons in the scene; and arrow-key camera orbit.</p>
+      </div>
+    </li>
+
+    <li>
+      <div class="stamp"><b>18</b>10 Mar<br />&ndash; 24 Mar</div>
+      <div class="entry">
+        <h3>A U-Net, a dimensional mismatch, and a bug</h3>
+        <p class="files">18_skips.py</p>
+        <p>The most ambitious script, and the one with the most instructive failure. The idea is standard: give the encoder&ndash;decoder skip connections so fine detail from the input can bypass the bottleneck. The obstacle is not standard at all &mdash; the encoder&rsquo;s features are 1D, shape <code>(C, L)</code>, and the decoder needs 2D, shape <code>(C, H, W)</code>. There is no conventional way to connect them.</p>
+        <p>The solution invented here is to split each 1D feature vector in half, treat the halves as an x-profile and a y-profile, and take their outer product in log space:</p>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 820 236" role="img" aria-label="A one-dimensional encoder feature of shape C by L is split into two halves, exponentiated, combined by an einsum outer product, log-transformed back into a C by L-over-2 square feature map, and concatenated onto the decoder feature map.">
+              <defs>
+                <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 1 L 9 5 L 0 9 z" fill="currentColor" />
+                </marker>
+              </defs>
+              <g stroke="currentColor" stroke-width="1" fill="#ffffff">
+                <rect x="16"  y="92"  width="124" height="56" />
+                <rect x="190" y="58"  width="96"  height="46" />
+                <rect x="190" y="136" width="96"  height="46" />
+                <rect x="326" y="76"  width="174" height="88" stroke="#c8452c" stroke-width="2" />
+                <rect x="540" y="92"  width="118" height="56" />
+                <rect x="698" y="92"  width="106" height="56" stroke="#1c6899" stroke-width="2" />
+              </g>
+              <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9" letter-spacing="1.1" fill="#7c8a93" text-anchor="middle">
+                <text x="78"  y="110">ENCODER SKIP</text>
+                <text x="238" y="76">FIRST HALF</text>
+                <text x="238" y="154">SECOND HALF</text>
+                <text x="413" y="95">SEPARABLE LIFT</text>
+                <text x="599" y="110">2-D FEATURE</text>
+                <text x="751" y="110">DECODER</text>
+              </g>
+              <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#1c242b" text-anchor="middle">
+                <text x="78"  y="130">(C, L)</text>
+                <text x="238" y="94">sx</text>
+                <text x="238" y="172">sy</text>
+                <text x="599" y="130">(C, L/2, L/2)</text>
+              </g>
+              <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#c8452c" text-anchor="middle">
+                <text x="413" y="120">exp &rarr; outer &rarr; log</text>
+              </g>
+              <text x="413" y="140" font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#4e5c66" text-anchor="middle">einsum('bci,bcj-&gt;bcij')</text>
+              <text x="413" y="156" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#7c8a93" text-anchor="middle">rank-1 per channel</text>
+              <text x="751" y="130" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" fill="#1c242b" text-anchor="middle">concat, dim 1</text>
+
+              <g stroke="currentColor" stroke-width="1.2" fill="none" marker-end="url(#ar3)">
+                <path d="M 142 120 L 164 120 L 164 81 L 186 81" />
+                <path d="M 142 120 L 164 120 L 164 159 L 186 159" />
+                <path d="M 288 81 L 308 81 L 308 120 L 322 120" />
+                <path d="M 288 159 L 308 159 L 308 120" />
+                <line x1="502" y1="120" x2="536" y2="120" />
+                <line x1="660" y1="120" x2="694" y2="120" />
+              </g>
+              <text x="164" y="46" font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#7c8a93" text-anchor="middle">split</text>
+              <text x="413" y="210" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#7c8a93" text-anchor="middle">Adding two profiles in log space multiplies them in linear space &mdash; every lifted map is one profile summed against the other.</text>
+            </svg>
+          </div>
+          <figcaption><b>The 1D&nbsp;&rarr;&nbsp;2D skip lift from <code>18_skips.py</code>.</b> Because <code>log(exp(a) &times; exp(b)) = a + b</code>, the einsum builds a field whose value at <code>(i, j)</code> is <code>sx[i] + sy[j]</code>. That is elegant and cheap, and it is also strictly separable: every skipped feature map is rank one and axis-aligned. The observed symptom matched exactly &mdash; enabling skips gave outputs the log describes as <em>&ldquo;interesting, but square&rdquo;</em>.</figcaption>
+        </figure>
+
+        <p>The first fortnight of results was bad. Small datasets overfit hard (validation 0.0022 against test 0.0852); thinner and deeper variants got stuck around 0.05; ten-file runs <em>&ldquo;converge very slowly and seem stuck&rdquo;</em>. The file records the moment of surrender, and then, three lines later, the recovery:</p>
+        <div class="quote">
+          # I think this is a lost cause :) Move on!<br />
+          #<br />
+          # Ok, tried matching this architecture with 06, and it does converge, so I must have done something wrong.<br />
+          # Could be that nn.ConvTranspose2d(1,1,1) at the end. Refactor.
+          <cite>18_skips.py</cite>
+        </div>
+        <p>It was a bug, not the architecture. Reproducing <code>06</code>&rsquo;s configuration inside <code>18</code>&rsquo;s code was the diagnostic that proved it &mdash; if a known-good architecture fails to converge in your new harness, the harness is wrong. The fixes: replace the final transposed convolution with a plain 1&nbsp;&times;&nbsp;1 <code>Conv2d</code> channel squash with no activation, as U-Net does; drop a redundant decoder block inside the bottleneck; upscale from the bottleneck with a dense layer rather than a convolution.</p>
+        <p>After the fix, like-for-like parity with <code>06</code> was restored (validation 0.0079, test 0.0513) and the comparison finally became meaningful. The verdict: <b>skips off was the better model.</b> With skips disabled the output was <em>&ldquo;very smooth and fits edges well, could be good for tiled gen, stable&rdquo;</em>; with skips enabled it scored slightly better on validation and looked square and unstable. A 33&nbsp;MB skip-free variant shipped as <code>18-256-4</code>.</p>
+        <p>The last line of the file, and effectively the last line of the project, is the sharpest observation in it:</p>
+        <div class="quote">
+          # todo: produce strided variants AFTER val split?
+          <cite>18_skips.py</cite>
+        </div>
+        <p>With a window of 128 and a stride of 8, a random train/validation split puts near-duplicate tiles on both sides of it. Validation loss sat around 0.007 while held-out-file loss sat around 0.05 &mdash; a sevenfold gap that is mostly leakage, and which quietly undermines every model-selection decision made by validation number across all eighteen scripts. It is the right thing to have noticed, and it was noticed last.</p>
+      </div>
+    </li>
+
+  </ol>
+</section>
+
+<!-- ======================= APPROACHES ======================= -->
+<section id="approaches">
+  <h2>Approaches &amp; results</h2>
+
+  <p class="lede">Six families of model were tried against the same task. The bottleneck moved, the loss changed, the dataset grew by thirty times &mdash; but the winning shape stayed the one found on day six: convolve the boundary down, inflate a 2D field back up.</p>
+
+  <figure>
+    <div class="fig-frame">
+      <svg viewBox="0 0 900 456" role="img" aria-label="Six model architectures drawn on a shared left-to-right spine from edge input to tile output, differing only in the middle: dense layers, four-edge dense, one-dimensional convolution with a bottleneck, a frozen pretrained decoder, a variational bottleneck with mu and sigma heads, and the same convolutional model with separable skip connections.">
+        <defs>
+          <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M 0 1 L 9 5 L 0 9 z" fill="currentColor" />
+          </marker>
+        </defs>
+
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9" letter-spacing="1.1" fill="#7c8a93">
+          <text x="110" y="30">INPUT</text>
+          <text x="820" y="30">OUTPUT</text>
+        </g>
+
+        <!-- 02 -->
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#7c8a93"><text x="0" y="60">02 &middot; 12 Feb</text><text x="0" y="74">dense</text></g>
+        <g stroke="currentColor" stroke-width="1" fill="#ffffff">
+          <rect x="110" y="44" width="64" height="40" /><rect x="196" y="44" width="150" height="40" /><rect x="362" y="44" width="110" height="40" /><rect x="488" y="44" width="170" height="40" /><rect x="820" y="44" width="64" height="40" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#1c242b" text-anchor="middle">
+          <text x="142" y="69">256</text><text x="271" y="69">Linear 1024</text><text x="417" y="69">drop 0.5</text><text x="573" y="69">Linear 16 384</text><text x="852" y="69">128&#178;</text>
+        </g>
+        <g stroke="currentColor" stroke-width="1.1" marker-end="url(#ar4)">
+          <line x1="176" y1="64" x2="192" y2="64" /><line x1="348" y1="64" x2="358" y2="64" /><line x1="474" y1="64" x2="484" y2="64" /><line x1="660" y1="64" x2="816" y2="64" />
+        </g>
+        <text x="738" y="58" font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9" fill="#7c8a93" text-anchor="middle">reshape</text>
+
+        <!-- 04 -->
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#7c8a93"><text x="0" y="124">04 &middot; 12 Feb</text><text x="0" y="138">four edges</text></g>
+        <g stroke="currentColor" stroke-width="1" fill="#ffffff">
+          <rect x="110" y="108" width="64" height="40" /><rect x="196" y="108" width="130" height="40" /><rect x="342" y="108" width="150" height="40" /><rect x="508" y="108" width="150" height="40" /><rect x="820" y="108" width="64" height="40" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#1c242b" text-anchor="middle">
+          <text x="142" y="133">512</text><text x="261" y="133">Linear 128</text><text x="417" y="133">Linear 4096</text><text x="583" y="133">Linear 126&#178;</text><text x="852" y="133">126&#178;</text>
+        </g>
+        <g stroke="currentColor" stroke-width="1.1" marker-end="url(#ar4)">
+          <line x1="176" y1="128" x2="192" y2="128" /><line x1="328" y1="128" x2="338" y2="128" /><line x1="494" y1="128" x2="504" y2="128" /><line x1="660" y1="128" x2="816" y2="128" />
+        </g>
+        <text x="738" y="122" font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9" fill="#7c8a93" text-anchor="middle">interior only</text>
+
+        <!-- 06 -->
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#c8452c"><text x="0" y="188">06 &middot; 14 Feb</text><text x="0" y="202">conv</text></g>
+        <g stroke="currentColor" stroke-width="1" fill="#ffffff">
+          <rect x="110" y="172" width="64" height="40" /><rect x="196" y="172" width="160" height="40" stroke="#c8452c" stroke-width="1.8" /><rect x="372" y="172" width="150" height="40" /><rect x="538" y="172" width="170" height="40" stroke="#c8452c" stroke-width="1.8" /><rect x="820" y="172" width="64" height="40" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#1c242b" text-anchor="middle">
+          <text x="142" y="197">256</text><text x="276" y="197">Conv1d &times;6 &darr;</text><text x="447" y="197">bottleneck 512</text><text x="623" y="197">ConvT2d &times;6 &uarr;</text><text x="852" y="197">128&#178;</text>
+        </g>
+        <g stroke="currentColor" stroke-width="1.1" marker-end="url(#ar4)">
+          <line x1="176" y1="192" x2="192" y2="192" /><line x1="358" y1="192" x2="368" y2="192" /><line x1="524" y1="192" x2="534" y2="192" /><line x1="710" y1="192" x2="816" y2="192" />
+        </g>
+
+        <!-- 11 / 16 -->
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#7c8a93"><text x="0" y="252">11 &middot; 16</text><text x="0" y="266">frozen prior</text></g>
+        <g stroke="currentColor" stroke-width="1" fill="#ffffff">
+          <rect x="110" y="236" width="64" height="40" /><rect x="196" y="236" width="150" height="40" /><rect x="362" y="236" width="130" height="40" /><rect x="820" y="236" width="64" height="40" />
+          <rect x="508" y="236" width="200" height="40" fill="#ecefea" stroke-dasharray="5 3" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#1c242b" text-anchor="middle">
+          <text x="142" y="261">256</text><text x="271" y="261">Linear 1024</text><text x="427" y="261">latent 256</text><text x="608" y="261">pretrained decoder</text><text x="852" y="261">128&#178;</text>
+        </g>
+        <g stroke="currentColor" stroke-width="1.1" marker-end="url(#ar4)">
+          <line x1="176" y1="256" x2="192" y2="256" /><line x1="348" y1="256" x2="358" y2="256" /><line x1="494" y1="256" x2="504" y2="256" /><line x1="710" y1="256" x2="816" y2="256" />
+        </g>
+        <text x="608" y="290" font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9" fill="#7c8a93" text-anchor="middle">weights frozen &mdash; trained separately on tiles (08 / 15)</text>
+
+        <!-- 14 -->
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#6e8f35"><text x="0" y="316">14 &middot; 22 Feb</text><text x="0" y="330">VAE &mdash; live</text></g>
+        <g stroke="currentColor" stroke-width="1" fill="#ffffff">
+          <rect x="110" y="300" width="64" height="40" /><rect x="196" y="300" width="150" height="40" /><rect x="362" y="300" width="120" height="40" stroke="#6e8f35" stroke-width="1.8" /><rect x="498" y="300" width="110" height="40" stroke="#6e8f35" stroke-width="1.8" /><rect x="624" y="300" width="160" height="40" /><rect x="820" y="300" width="64" height="40" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#1c242b" text-anchor="middle">
+          <text x="142" y="325">256</text><text x="271" y="325">Conv1d &times;6 &darr;</text><text x="422" y="325">&mu; / log &sigma;&#178;</text><text x="553" y="325">z &sim; 512</text><text x="704" y="325">ConvT2d &times;6 &uarr;</text><text x="852" y="325">128&#178;</text>
+        </g>
+        <g stroke="currentColor" stroke-width="1.1" marker-end="url(#ar4)">
+          <line x1="176" y1="320" x2="192" y2="320" /><line x1="348" y1="320" x2="358" y2="320" /><line x1="484" y1="320" x2="494" y2="320" /><line x1="610" y1="320" x2="620" y2="320" /><line x1="786" y1="320" x2="816" y2="320" />
+        </g>
+
+        <!-- 18 -->
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#7c8a93"><text x="0" y="380">18 &middot; 10 Mar</text><text x="0" y="394">U-Net-like</text></g>
+        <g stroke="currentColor" stroke-width="1" fill="#ffffff">
+          <rect x="110" y="364" width="64" height="40" /><rect x="196" y="364" width="160" height="40" /><rect x="372" y="364" width="150" height="40" /><rect x="538" y="364" width="170" height="40" /><rect x="820" y="364" width="64" height="40" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#1c242b" text-anchor="middle">
+          <text x="142" y="389">256</text><text x="276" y="389">Conv1d &times;6 &darr;</text><text x="447" y="389">bottleneck 256</text><text x="623" y="389">ConvT2d &times;6 &uarr;</text><text x="852" y="389">128&#178;</text>
+        </g>
+        <g stroke="currentColor" stroke-width="1.1" marker-end="url(#ar4)">
+          <line x1="176" y1="384" x2="192" y2="384" /><line x1="358" y1="384" x2="368" y2="384" /><line x1="524" y1="384" x2="534" y2="384" /><line x1="710" y1="384" x2="816" y2="384" />
+        </g>
+        <path d="M 276 404 C 276 436, 623 436, 623 404" fill="none" stroke="#c8452c" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#ar4)" color="#c8452c" />
+        <text x="450" y="450" font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#c8452c" text-anchor="middle">separable lift &mdash; disabled in the shipped model</text>
+      </svg>
+    </div>
+    <figcaption><b>The same spine, six middles.</b> Only <code>04</code> changes the interface (four edges in, interior out); everything else takes 256 boundary values and returns a full <code>128&#178;</code> tile. Highlighted in red is the encoder/decoder pair introduced in <code>06</code> and reused unchanged by <code>14</code> and <code>18</code>; in green, the variational bottleneck that runs on the live page. The dashed frozen decoder is the two-stage idea that was tried twice and dropped twice.</figcaption>
+  </figure>
+
+  <h3>Dense baselines &mdash; 02, 04, 11, 16</h3>
+  <p>All figures are MSE on locally-normalised elevations in metres, so they are on the order of squared metres and are not comparable to anything from <code>06</code> onward.</p>
+
+  <div class="table-wrap">
+    <table>
+      <caption>Dense and frozen-decoder models. Held-out losses are from <code>03_test</code> and <code>12_test</code>.</caption>
+      <thead><tr><th>Script</th><th>Configuration</th><th class="num">Val</th><th class="num">Test</th><th>Verdict</th><th>&nbsp;</th></tr></thead>
+      <tbody>
+        <tr><td class="cfg">02</td><td class="cfg">1024 wide, dropout 0.5, one edge</td><td class="num">&mdash;</td><td class="num">108</td><td>Blobby; establishes the baseline</td><td><span class="chip drop">superseded</span></td></tr>
+        <tr><td class="cfg">02</td><td class="cfg">1024 wide, dropout 0.5, two edges</td><td class="num">&mdash;</td><td class="num">54</td><td>Second edge halves the error</td><td><span class="chip keep">informative</span></td></tr>
+        <tr><td class="cfg">04</td><td class="cfg">128&rarr;4096, dropout 0.2</td><td class="num">80</td><td class="num">&mdash;</td><td>Overfit</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="cfg">04</td><td class="cfg">128&rarr;4096, no dropout</td><td class="num">5.5</td><td class="num">&mdash;</td><td>&ldquo;and it learned the texture!&rdquo;</td><td><span class="chip keep">key result</span></td></tr>
+        <tr><td class="cfg">04</td><td class="cfg">128&rarr;1024&rarr;2048&rarr;8192, no dropout</td><td class="num">3.50</td><td class="num">&mdash;</td><td>Nontrivial shapes, no sharp corners</td><td><span class="chip keep">best dense</span></td></tr>
+        <tr><td class="cfg">11</td><td class="cfg">boundary &rarr; frozen AE decoder, two edges</td><td class="num">&mdash;</td><td class="num">46</td><td>Barely beats 02; sparse ReLU latent is a poor target</td><td><span class="chip drop">dropped</span></td></tr>
+        <tr><td class="cfg">16</td><td class="cfg">boundary &rarr; frozen VAE decoder</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td>Denser latent, easier to hit; still lost to end-to-end 14</td><td><span class="chip drop">dropped</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Convolutional &mdash; 06</h3>
+  <p>Now on per-tile <code>[-1, 1]</code> normalisation, so losses are three orders of magnitude smaller. The dataset-size story is the point of this table: every attempt to buy quality with more data cost detail until the bottleneck and dropout were re-tuned to match.</p>
+
+  <div class="table-wrap">
+    <table>
+      <caption>Selected runs from the log in <code>06_train_conv.py</code>. The held-out file changed twice during this sequence, so compare test figures within contiguous groups only. &divide;n is the <code>max_pool2d</code> factor.</caption>
+      <thead><tr><th class="num">Tiles</th><th>Configuration</th><th class="num">Val</th><th class="num">Test</th><th>Note</th><th>&nbsp;</th></tr></thead>
+      <tbody>
+        <tr><td class="num">20k</td><td class="cfg">latent 1024, dropout 0.5, &divide;4</td><td class="num">0.0085</td><td class="num">0.1168</td><td>25&nbsp;MB. The model that simulates rivers</td><td><span class="chip keep">landmark</span></td></tr>
+        <tr><td class="num">100k</td><td class="cfg">latent 1024, dropout 0.5, &divide;10, batch 32</td><td class="num">0.0275</td><td class="num">0.0854</td><td>&mdash;</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="num">250k</td><td class="cfg">latent 2048, dropout 0.75, &divide;6, batch 32</td><td class="num">0.0183</td><td class="num">0.0587</td><td>&ldquo;kind of ok&rdquo;</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="num">500k</td><td class="cfg">latent 4096, dropout 0.875, &divide;4, batch 32</td><td class="num">0.0309</td><td class="num">0.0525</td><td>&ldquo;But effect is boring&rdquo;</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="num">600k</td><td class="cfg">latent 2048, dropout 0.85, &divide;4, batch 32</td><td class="num">0.0305</td><td class="num">0.0439</td><td>&ldquo;too flat&rdquo; &mdash; best test number, worst output</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="num">600k</td><td class="cfg">latent 512, no dropout, &divide;4, batch 32</td><td class="num">0.0160</td><td class="num">0.0523</td><td>Good edge matching; square artefacts and spikes</td><td><span class="chip keep">breakthrough</span></td></tr>
+        <tr><td class="num">600k</td><td class="cfg">as above, + Huber &delta;&nbsp;0.25</td><td class="num">0.0076</td><td class="num">0.0526</td><td>&ldquo;ok but quite spiky&rdquo;</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="num">600k</td><td class="cfg">as above, + dropout 0.1, batch 64</td><td class="num">0.0085</td><td class="num">0.0488</td><td>Dropout back, for input stability not accuracy</td><td><span class="chip keep">good</span></td></tr>
+        <tr><td class="num">600k</td><td class="cfg">as above, + dropout 0.1, batch 128</td><td class="num">0.0087</td><td class="num">0.0499</td><td>&ldquo;good stuff&rdquo;</td><td><span class="chip ship">shipped</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Variational &mdash; 14</h3>
+  <p>Architecture held fixed; the loss weights swept. Values are the composite objective, with the MAE term (<em>crit</em>) and the SSIM term (<em>perc</em>) tracked separately in the original log. The final row of this table is the model on the live page.</p>
+
+  <div class="table-wrap">
+    <table>
+      <caption>The loss study in <code>14_vae.py</code>. Every objective includes annealed KL divergence at 1e&minus;4 unless noted.</caption>
+      <thead><tr><th class="num">Latent</th><th>Objective</th><th class="num">Val</th><th class="num">Test</th><th>Verdict, verbatim where quoted</th><th>&nbsp;</th></tr></thead>
+      <tbody>
+        <tr><td class="num">2048</td><td class="cfg">MAE + SSIM</td><td class="num">&mdash;</td><td class="num">0.1495</td><td>&ldquo;interesting result with cool shapes, and clear rivers&rdquo;</td><td><span class="chip keep">promising</span></td></tr>
+        <tr><td class="num">256</td><td class="cfg">Huber 0.25 + SSIM</td><td class="num">0.0499</td><td class="num">0.1482</td><td>&ldquo;smooth and uninteresting&rdquo;</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="num">512</td><td class="cfg">MAE + SSIM</td><td class="num">0.1134</td><td class="num">0.2992</td><td>&ldquo;loss looks bad BUT got the interesting terrain shapes&rdquo;</td><td><span class="chip keep">promising</span></td></tr>
+        <tr><td class="num">512</td><td class="cfg">MAE only</td><td class="num">0.0738</td><td class="num">0.1719</td><td>&ldquo;Similarly good rivers, but very jagged&rdquo;</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="num">768</td><td class="cfg">MAE + SSIM</td><td class="num">0.1076</td><td class="num">0.2962</td><td>&ldquo;too many wrinkles!&rdquo;</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="num">512</td><td class="cfg">MAE + SSIM, KL &times;10</td><td class="num">0.2279</td><td class="num">0.3152</td><td>&ldquo;Nah, too smooth again&rdquo;</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="num">512</td><td class="cfg">0.25&middot;MAE + SSIM</td><td class="num">0.0670</td><td class="num">0.1704</td><td>&ldquo;nice! rivers are there, pretty smooth, responds to camel test&rdquo;</td><td><span class="chip keep">good</span></td></tr>
+        <tr><td class="num">512</td><td class="cfg">SSIM only, no MAE</td><td class="num">0.0473</td><td class="num">0.1256</td><td>Best loss in the file &mdash; &ldquo;fails camel test&rdquo;</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="num">256</td><td class="cfg">0.1&middot;MAE + SSIM</td><td class="num">0.0527</td><td class="num">0.1423</td><td>&ldquo;alright, but a bit unstable&rdquo;</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="num">512</td><td class="cfg">0.1&middot;MAE + SSIM</td><td class="num">0.0588</td><td class="num">0.1409</td><td>&ldquo;seems even better&rdquo; &mdash; the stated conclusion of the file</td><td><span class="chip ship">live</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <p><strong>The clearest single lesson in the project.</strong> Two rows above sit next to each other: SSIM-only scores the best held-out loss (0.1256) and fails the qualitative checks; adding back a tenth of a unit of MAE makes the loss worse (0.1409) and the model shippable. Pixel error measures agreement with <em>one</em> ground truth. For an underdetermined task that is the wrong question, and a structural term plus a light pixel anchor is a better proxy for &ldquo;is this a hillside&rdquo;.</p>
+  </div>
+
+  <h3>U-Net-like &mdash; 18</h3>
+
+  <div class="table-wrap">
+    <table>
+      <caption>Runs from <code>18_skips.py</code>, in order. Everything above the bug row was measured against a broken output head.</caption>
+      <thead><tr><th class="num">Tiles</th><th>Configuration</th><th class="num">Val</th><th class="num">Test</th><th>Note</th><th>&nbsp;</th></tr></thead>
+      <tbody>
+        <tr><td class="num">20k</td><td class="cfg">layers 6, ch 16, bottleneck 512, skip</td><td class="num">0.0022</td><td class="num">0.0852</td><td>39&times; gap &mdash; severe overfit</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="num">20k</td><td class="cfg">layers 8, ch 4, bottleneck 512</td><td class="num">0.0528</td><td class="num">0.1815</td><td>Stuck, will not converge further</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="num">20k</td><td class="cfg">bottleneck 1024, dropout 0.5</td><td class="num">0.0036</td><td class="num">0.0866</td><td>&ldquo;actually quite good, and requires less data&rdquo;</td><td><span class="chip keep">promising</span></td></tr>
+        <tr><td class="num">87k</td><td class="cfg">7 files, stride 20</td><td class="num">0.0290</td><td class="num">0.0642</td><td>&ldquo;bad&rdquo; &mdash; then: &ldquo;I think this is a lost cause :) Move on!&rdquo;</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="num">&mdash;</td><td class="cfg">final ConvTranspose2d(1,1,1) &rarr; 1&times;1 Conv2d</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td>Cause found by reproducing 06 inside this harness</td><td><span class="chip bug">bug fixed</span></td></tr>
+        <tr><td class="num">600k</td><td class="cfg">like-for-like with 06</td><td class="num">0.0079</td><td class="num">0.0513</td><td>&ldquo;good we can progress&rdquo; &mdash; parity restored</td><td><span class="chip keep">control</span></td></tr>
+        <tr><td class="num">40k</td><td class="cfg">10 files, stride 32, block 3, no skip</td><td class="num">0.0196</td><td class="num">0.0469</td><td>Best test in the file &mdash; &ldquo;but boring&rdquo;</td><td><span class="chip drop">no</span></td></tr>
+        <tr><td class="num">600k</td><td class="cfg">block 3, no skip</td><td class="num">0.0076</td><td class="num">0.0526</td><td>&ldquo;very smooth and fits edges well, could be good for tiled gen, stable&rdquo;</td><td><span class="chip keep">good</span></td></tr>
+        <tr><td class="num">600k</td><td class="cfg">block 3, <b>with skip</b></td><td class="num">0.0059</td><td class="num">0.0532</td><td>&ldquo;interesting, but square, and a bit unstable&rdquo;</td><td><span class="chip drop">rejected</span></td></tr>
+        <tr><td class="num">600k</td><td class="cfg">layers 6, bottleneck 256, block 3, no skip</td><td class="num">0.0070</td><td class="num">0.0526</td><td>33&nbsp;MB, &ldquo;fine&rdquo;</td><td><span class="chip ship">shipped</span></td></tr>
+        <tr><td class="num">88k</td><td class="cfg">block 1, no skip, Huber + SSIM</td><td class="num">0.0682</td><td class="num">0.1392</td><td>&ldquo;kinda interesting but doesn&rsquo;t pass two-waves&rdquo;</td><td><span class="chip drop">no</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>The headline: the skip connections, which were the entire reason for writing this script, lost. They improved validation loss and made the terrain worse in a specific and predictable way &mdash; visibly axis-aligned, because a rank-one separable lift can only ever add an x-profile to a y-profile. What the script did deliver was a clean, parameterised model (<code>layers</code>, <code>block_layers</code>, <code>channels</code>, <code>bottleneck</code>, <code>dropout</code>, <code>skip</code>) and a shipped 33&nbsp;MB checkpoint that fits drawn edges better than anything before it.</p>
+
+  <h3>What actually shipped</h3>
+
+  <div class="table-wrap">
+    <table>
+      <caption>Contents of <code>dist/</code> on the <code>gh-pages</code> branch. The model is chosen by one line of JavaScript in <code>index.html</code>, so all three can be swapped in by editing <code>document.modelName</code>.</caption>
+      <thead><tr><th>Checkpoint</th><th>Family</th><th class="num">Size</th><th>Character</th><th>&nbsp;</th></tr></thead>
+      <tbody>
+        <tr><td class="cfg">14-256-4-7-vae-ssim</td><td>VAE, 0.1&middot;MAE + SSIM + KL</td><td class="num">23.1 MB</td><td>The most interesting terrain; clear drainage</td><td><span class="chip ship">live default</span></td></tr>
+        <tr><td class="cfg">06-256-4</td><td>Conv, Huber + dropout 0.1</td><td class="num">16.9 MB</td><td>Smallest and most stable</td><td><span class="chip keep">available</span></td></tr>
+        <tr><td class="cfg">18-256-4</td><td>U-Net-like, skips off</td><td class="num">33.6 MB</td><td>Best edge fidelity, smoothest interior</td><td><span class="chip keep">available</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ======================= SIMULATOR ======================= -->
+<section id="simulator">
+  <h2>Wiring the simulator</h2>
+
+  <p class="lede">A PyTorch model in a browser tab, driven by a Go program, drawing 3D terrain with no GPU. Four technologies that don&rsquo;t normally meet, joined at two narrow interfaces.</p>
+
+  <p>The demo is a single static page. <code>ui/index.html</code> loads two scripts &mdash; Go&rsquo;s <code>wasm_exec.js</code> shim and <code>ort.min.js</code> &mdash; then defines the whole JavaScript side of the application in about twenty lines: a <code>load()</code> that creates an <code>ort.InferenceSession</code> from a <code>.onnx</code> URL, and an <code>infer()</code> that runs it. Both are attached directly to <code>document</code>, which is how the Go code finds them. Two globals, <code>document.boundl</code> and <code>document.modelName</code>, are the entire configuration surface; changing which model the site serves is a one-line edit.</p>
+
+  <p>Everything else &mdash; input handling, normalisation, mesh construction, camera, rendering &mdash; is Go, built with <code>GOOS=js GOARCH=wasm go build -o dist/main.wasm</code>.</p>
+
+  <figure>
+    <div class="fig-frame">
+      <svg viewBox="0 0 960 396" role="img" aria-label="A round trip: Go WebAssembly captures pointer input into profile canvases, debounces, normalises and serialises to JSON; JavaScript parses it into a Float32Array, wraps it as an ONNX tensor, runs the session and returns 16384 floats; Go rescales them, builds a mesh and renders it with Tetra3D.">
+        <defs>
+          <marker id="ar5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M 0 1 L 9 5 L 0 9 z" fill="currentColor" />
+          </marker>
+        </defs>
+
+        <!-- lane labels -->
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" letter-spacing="1" fill="#7c8a93">
+          <text x="0" y="74">GO &rarr;</text><text x="0" y="88">WASM</text>
+          <text x="0" y="208">JAVA-</text><text x="0" y="222">SCRIPT</text>
+          <text x="0" y="338">GO &rarr;</text><text x="0" y="352">WASM</text>
+        </g>
+
+        <!-- row A -->
+        <g stroke="currentColor" stroke-width="1" fill="#ffffff">
+          <rect x="104" y="54" width="182" height="52" /><rect x="322" y="54" width="182" height="52" /><rect x="540" y="54" width="182" height="52" /><rect x="758" y="54" width="182" height="52" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9" letter-spacing="1.1" fill="#7c8a93" text-anchor="middle">
+          <text x="195" y="74">INPUT</text><text x="413" y="74">CANVAS</text><text x="631" y="74">DEBOUNCE</text><text x="849" y="74">ENCODE</text>
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#1c242b" text-anchor="middle">
+          <text x="195" y="93">pointer / touch</text><text x="413" y="93">128 floats per edge</text><text x="631" y="93">200 ms quiet</text><text x="849" y="93">&rarr; [&minus;1, 1], JSON</text>
+        </g>
+        <g stroke="currentColor" stroke-width="1.1" marker-end="url(#ar5)">
+          <line x1="290" y1="80" x2="318" y2="80" /><line x1="508" y1="80" x2="536" y2="80" /><line x1="726" y1="80" x2="754" y2="80" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="8.5" fill="#7c8a93" text-anchor="middle">
+          <text x="304" y="46">px</text><text x="522" y="46">on change</text><text x="740" y="46">both edges</text>
+        </g>
+
+        <!-- row B -->
+        <g stroke="currentColor" stroke-width="1" fill="#ffffff">
+          <rect x="104" y="188" width="182" height="52" /><rect x="322" y="188" width="182" height="52" stroke="#1c6899" stroke-width="2" /><rect x="540" y="188" width="182" height="52" /><rect x="758" y="188" width="182" height="52" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9" letter-spacing="1.1" fill="#7c8a93" text-anchor="middle">
+          <text x="195" y="208">RESULT</text><text x="413" y="208">INFER</text><text x="631" y="208">TENSOR</text><text x="849" y="208">DECODE</text>
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#1c242b" text-anchor="middle">
+          <text x="195" y="227">16 384 floats</text><text x="631" y="227">ort.Tensor [1, 256]</text><text x="849" y="227">Float32Array</text>
+        </g>
+        <text x="413" y="227" font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#1c6899" text-anchor="middle">session.run</text>
+        <g stroke="currentColor" stroke-width="1.1" marker-end="url(#ar5)">
+          <line x1="754" y1="214" x2="726" y2="214" /><line x1="536" y1="214" x2="508" y2="214" /><line x1="318" y1="214" x2="290" y2="214" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="8.5" fill="#7c8a93" text-anchor="middle">
+          <text x="740" y="180">typed</text><text x="522" y="180">feeds { edge }</text><text x="304" y="180">tile</text>
+        </g>
+
+        <!-- row C -->
+        <g stroke="currentColor" stroke-width="1" fill="#ffffff">
+          <rect x="104" y="318" width="182" height="52" /><rect x="322" y="318" width="182" height="52" /><rect x="540" y="318" width="182" height="52" /><rect x="758" y="318" width="182" height="52" stroke="#6e8f35" stroke-width="2" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9" letter-spacing="1.1" fill="#7c8a93" text-anchor="middle">
+          <text x="195" y="338">RESCALE</text><text x="413" y="338">MESH</text><text x="631" y="338">SHADE</text><text x="849" y="338">RENDER</text>
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#1c242b" text-anchor="middle">
+          <text x="195" y="357">&minus; min, &times; span/2</text><text x="413" y="357">128&#178; verts, 2-sided</text><text x="631" y="357">AutoNormal, HSV ramp</text><text x="849" y="357">Tetra3D rasteriser</text>
+        </g>
+        <g stroke="currentColor" stroke-width="1.1" marker-end="url(#ar5)">
+          <line x1="290" y1="344" x2="318" y2="344" /><line x1="508" y1="344" x2="536" y2="344" /><line x1="726" y1="344" x2="754" y2="344" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="8.5" fill="#7c8a93" text-anchor="middle">
+          <text x="304" y="310">on floor</text><text x="522" y="310">triangles</text><text x="740" y="310">scene</text>
+        </g>
+
+        <!-- verticals -->
+        <g stroke="#c8452c" stroke-width="1.4" fill="none" marker-end="url(#ar5)" color="#c8452c">
+          <line x1="849" y1="108" x2="849" y2="184" />
+          <line x1="195" y1="242" x2="195" y2="314" />
+        </g>
+        <g font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace" font-size="9" fill="#c8452c">
+          <text x="860" y="140">syscall/js</text><text x="860" y="153">JSON string</text>
+          <text x="206" y="274">syscall/js</text><text x="206" y="287">16 384 reads</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption><b>One inference, end to end.</b> The two red hops are the language boundary, and both are the naive implementation: the input is serialised to a JSON string with <code>json.Marshal</code> and parsed back with <code>JSON.parse</code>, and the output is pulled across one element at a time via <code>args[0].Get("0")</code> through <code>Get("16383")</code>. Correct, easy to read, and the obvious first thing to optimise.</figcaption>
+  </figure>
+
+  <h3>Turning a promise into a blocking call</h3>
+
+  <p>Go has no <code>await</code>. The bridge used throughout <code>ui/main.go</code> is to make an unbuffered channel, hand a <code>js.FuncOf</code> callback to the promise&rsquo;s <code>.then()</code>, and immediately receive from the channel &mdash; the goroutine parks until JavaScript resolves:</p>
+
+  <div class="quote">
+    asyncWait := make(chan interface{})<br />
+    g.document.Call("infer", string(edge)).Call("then", js.FuncOf(func(&hellip;) interface{} {<br />
+    &nbsp;&nbsp;&nbsp;&nbsp;<em>// copy the 16 384 results out</em><br />
+    &nbsp;&nbsp;&nbsp;&nbsp;asyncWait &lt;- nil<br />
+    &nbsp;&nbsp;&nbsp;&nbsp;return nil<br />
+    }))<br />
+    &lt;-asyncWait
+    <cite>ui/main.go &mdash; the same pattern is used to wait for the model to load at startup</cite>
+  </div>
+
+  <p>It is called from inside Ebiten&rsquo;s <code>Update()</code>, so the frame loop genuinely stalls during inference. At 200&nbsp;ms of debounce and a model of this size that is unnoticeable, and it keeps the whole program single-threaded and free of locks.</p>
+
+  <h3>Drawing, and knowing when to stop</h3>
+
+  <p>Each <code>crossSection</code> owns a 256&nbsp;&times;&nbsp;50 Ebiten image and a <code>[]float32</code> of length 128. <code>placePixel</code> converts a screen coordinate into an index and a height; because a fast drag delivers sparse mouse positions, <code>mouseEvent</code> linearly interpolates between the previous and current point so a quick stroke doesn&rsquo;t leave gaps in the profile.</p>
+
+  <p>Every change stamps <code>lastChanged</code> and sets a dirty flag. Inference fires only once <code>200 ms</code> have passed with no further movement &mdash; raised to <code>2000 ms</code> when touch input is detected, since the same work on a phone is far slower. This is the single most important interaction decision in the app: without it, every pixel of a drag would queue a full forward pass.</p>
+
+  <h3>Normalisation, in both directions</h3>
+
+  <p>The model was trained on tiles scaled to <code>[-1, 1]</code> by their own min and half-range, so the UI has to reproduce that exactly. It takes the min and max across <em>both</em> profiles together, maps them into range, concatenates, and sends. On the way back it does something subtly different from a plain inverse:</p>
+
+  <div class="quote">
+    // Pull output down to zero, then rescale back to reflect the input shape<br />
+    // (which depends on csHeight). However, let's always start at 0 - so don't push back up to min<br />
+    g.tileValues[i] = (v - obase) * (span / 2.0)
+    <cite>ui/main.go</cite>
+  </div>
+
+  <p>The output&rsquo;s own minimum is subtracted and the original offset is deliberately <em>not</em> restored, so the generated hill always rests on the floor of the scene no matter what absolute values the network produced. The user&rsquo;s drawn amplitude still controls the vertical scale, via <code>span</code>.</p>
+
+  <h3>From 16 384 floats to a lit surface</h3>
+
+  <p><code>newSurfaceMesh</code> is called from scratch on every update, and does more than the name suggests:</p>
+
+  <ul>
+    <li>128&nbsp;&times;&nbsp;128 vertices, with grid position scaled by 0.1 and elevation by 0.15.</li>
+    <li><b>Both faces of every quad</b> are emitted &mdash; front and back windings &mdash; so the surface never disappears as the camera orbits past it. That doubles the triangle count in exchange for not needing to think about culling.</li>
+    <li>Triangles are flushed into a fresh <code>MeshPart</code> just short of every 21&nbsp;845 &mdash; that is 65&nbsp;535 indices, the 16-bit ceiling the rasteriser works to.</li>
+    <li>Colour comes from <code>htoc()</code>: HSV hue <code>0.35 - (h/60)*0.3</code> at fixed saturation and value &mdash; a hypsometric ramp from green lowland to yellow high ground, computed per vertex.</li>
+    <li>Any vertex below <code>waterLevel</code> is snapped up to that plane and coloured blue &mdash; the mechanism behind the &ldquo;add water&rdquo; commit. Worth noting that it cannot currently fire: the same commit that added it also shifted every output down to a minimum of zero, and the threshold sits at &minus;100.</li>
+    <li>The two drawn profiles are added as separate 2&nbsp;&times;&nbsp;128 and 128&nbsp;&times;&nbsp;2 ribbon meshes in their highlight colours, so your input stands up in the scene next to the result.</li>
+    <li>Finally <code>UpdateBounds()</code> and <code>AutoNormal()</code>, then a single point light does the shading.</li>
+  </ul>
+
+  <p>Rendering is gated by a <code>needs3dRender</code> flag: the 2D drawing canvases repaint every frame, while the software-rasterised 3D scene is re-rendered only when the terrain or the camera actually changed. Arrow keys orbit by <code>0.1&pi;</code> radians.</p>
+
+  <div class="note">
+    <p><strong>A footnote worth finding.</strong> <code>ui/main.go</code> also contains <code>interp()</code>, an unused fallback that computes <code>tile[j][i] = cs1[j] * cs2[i] / 30</code> &mdash; the separable outer product of the two profiles. It is the same mathematics that <code>18_skips.py</code> later reinvented for its skip connections, and it is a fair statement of the baseline: everything the network contributes is what this product cannot express.</p>
+  </div>
+
+  <h3>Deployment</h3>
+
+  <p>The <code>gh-pages</code> branch holds <code>index.html</code> and a <code>dist/</code> directory: <code>main.wasm</code> at 8.6&nbsp;MB, four onnxruntime WASM builds at roughly 9&ndash;10&nbsp;MB each, and the three ONNX models. Nothing is generated at request time. From <code>14_vae.py</code> onward the training loop exported ONNX directly into <code>ui/dist/</code> on every improved epoch, so the demo and the current best checkpoint never drifted apart.</p>
+</section>
+
+<!-- ======================= NEXT ======================= -->
+<section id="next">
+  <h2>Where it could go</h2>
+
+  <p class="lede">Ordered by expected value, not effort. The first two change what every future measurement means; the rest are features and polish.</p>
+
+  <ol class="steps">
+    <li>
+      <h3>Split the data geographically, then window it <span class="chip bug">correctness</span></h3>
+      <p>This is the repository&rsquo;s own last unanswered to-do. A window of 128 at stride 8 means neighbouring samples share 94% of their pixels, so a random split scatters near-duplicates across train and validation. That is why validation loss sits near 0.007 while a genuinely held-out file sits near 0.05. Carve each raster into disjoint spatial blocks, assign whole blocks to train or validation, and only then slide the window. Expect validation to jump toward 0.05 and, for the first time, to be usable for model selection &mdash; which retroactively puts several close calls in the tables above back in play.</p>
+    </li>
+    <li>
+      <h3>Make the check-sheet executable <span class="chip bug">correctness</span></h3>
+      <p>The seven qualitative tests &mdash; river near and far, camel, V-valleys, hill, hole, noise, counter-edge &mdash; were run by hand in a notebook, which is why architecture comparisons kept coming down to memory of how something looked a fortnight earlier. Encode each as a fixed synthetic profile pair, render a deterministic contact sheet per checkpoint, and add two numbers that are currently unmeasured: <b>edge fidelity</b>, the error between the output&rsquo;s near edges and the input profile, and <b>input sensitivity</b>, the output change induced by perturbing one input value. That second one is exactly the instability that <code>Dropout(0.1)</code> was chosen by feel to fix.</p>
+    </li>
+    <li>
+      <h3>Constrain the far edges, then chain tiles <span class="chip keep">feature</span></h3>
+      <p>The model already emits its two far edges &mdash; indices 256&ndash;511 of the loop &mdash; but nothing in any objective asks them to be good. Add a loss term on them and terrain generation becomes tileable: feed a finished tile&rsquo;s far edges as the next tile&rsquo;s input and walk outward indefinitely. The notes already identify this as the blocker (<em>&ldquo;counter-edges are a bit bad so would be hard to infini-extrude&rdquo;</em>), and <code>18</code>&rsquo;s skip-free model was singled out as <em>&ldquo;could be good for tiled gen&rdquo;</em>. It is the shortest path from a 512-metre patch to a landscape.</p>
+    </li>
+    <li>
+      <h3>Expose the latent variable <span class="chip keep">feature</span></h3>
+      <p>The shipped model is a VAE. Its <code>forward</code> already returns <code>z</code>, and <code>17_explore_vae.py</code> already visualises it, but the demo exports only the tile and treats the model as a deterministic function. Splitting the ONNX graph at the sampler and letting the UI resample <code>z</code> would give a <em>reroll</em> button: same drawn profiles, several plausible hillsides. That converts a 23&nbsp;MB download from a lookup into a generative instrument, at zero training cost.</p>
+    </li>
+    <li>
+      <h3>Cut the payload <span class="chip keep">performance</span></h3>
+      <p>First load is 17&ndash;34&nbsp;MB of model plus roughly 10&nbsp;MB of runtime, and four onnxruntime WASM variants are published where the page needs one. Post-training int8 or fp16 quantisation of the transposed-convolution stack is the obvious win &mdash; those layers hold nearly all the parameters and the output is a smooth heightfield, which tolerates precision loss well. onnxruntime-web&rsquo;s WebGPU backend would also move the work off the CPU on most current browsers.</p>
+    </li>
+    <li>
+      <h3>Fix the language boundary <span class="chip keep">performance</span></h3>
+      <p>Each inference marshals the input to a JSON string and reads the output back with 16&nbsp;384 individual JavaScript property accesses, twice over &mdash; the current code loops the results once to find the minimum and again to rescale. Copy the typed array in one call and keep a single pass. Cheap, self-contained, and it lowers the debounce floor for mobile.</p>
+    </li>
+    <li>
+      <h3>Reconsider max-pooling as downsampling <span class="chip bug">data</span></h3>
+      <p><code>terrain_set2</code> reduces resolution with <code>max_pool2d</code>, which takes the highest point in each cell. On terrain that systematically thickens ridges and deletes narrow gullies &mdash; working against the drainage structure that turned out to be the model&rsquo;s most admired behaviour. Compare against <code>avg_pool2d</code> and a proper anti-aliased resample; it is a two-character change with a plausible effect on every result in this write-up.</p>
+    </li>
+    <li>
+      <h3>Replace the loss juggling with a conditional generative model <span class="chip keep">research</span></h3>
+      <p>Most of <code>14</code> and <code>18</code> is a search for a hand-weighted objective that is sharp without being noisy &mdash; a problem that exists because a single deterministic output has to stand in for a distribution. A small diffusion or flow-matching model over 128&#178; heightfields, conditioned on the existing <code>Conv1d</code> edge embedding, addresses that directly and gives sample diversity for free. The constraint is the 200&nbsp;ms interaction budget, which means a distilled few-step sampler rather than a standard schedule.</p>
+    </li>
+    <li>
+      <h3>More ways to say what you want <span class="chip keep">feature</span></h3>
+      <p>Two obvious extensions are already half-built. All four edges are in the dataset &mdash; <code>boundl=512</code> needs no new data, only a wider input layer. And <code>10b_explore_ae.py</code> showed the autoencoder reconstructing terrain from every second pixel, which means sparse interior constraints are learnable: a &ldquo;put a peak here&rdquo; affordance is a training-time change, not a research problem.</p>
+    </li>
+    <li>
+      <h3>Condition on region instead of averaging over it <span class="chip keep">research</span></h3>
+      <p>Mixing Oregon, California and Washington rasters made the output flat, and the project responded by retreating to one forest. The alternative is to keep the variety and tell the model what it is looking at &mdash; a learned region or terrain-class embedding concatenated to the bottleneck. One model that can do Cascade volcanics and Alameda hills, with the choice exposed in the UI, is more interesting than several models that each do one place.</p>
+    </li>
+  </ol>
+</section>
+
+
+
+<!-- ======================= REVIEW ======================= -->
+<section id="review">
+  <h2>A senior review</h2>
+  <p class="ai-note">An AI assessment, produced without a human reviewer   <h2>A senior review</h2>mdash; see the <a href="#disclosure">disclosure</a> at the top of this page.</p>
+
+  <p class="lede">What follows holds this to the standard I would apply to a senior engineer who straddles data, modelling and delivery &mdash; scaled for a one-person project with no reviewer, but not softened. The short version: the judgment on display is consistently better than the instrumentation supporting it.</p>
+
+  <p>That is an unusual failure mode, and worth stating plainly, because it inverts the common one. Most solo ML projects have tidy code and confused thinking about what they are measuring. This one has the opposite problem: the calls about <em>what makes a good terrain</em> are repeatedly right, and almost nothing in the repository would let a second person verify, reproduce or build on them.</p>
+
+  <div class="table-wrap">
+    <table>
+      <caption>Assessment by discipline, on a five-point ordinal scale. Rated against senior expectations for a solo project of this scope &mdash; not against a staffed team.</caption>
+      <thead><tr><th>Discipline</th><th class="score">Assessment</th><th>Reading</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Modelling judgment</td>
+          <td class="score"><span class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><span class="rating">4 / 5</span></td>
+          <td>Reads the problem correctly, and picks the right model over the better number</td>
+        </tr>
+        <tr>
+          <td>Experimental method</td>
+          <td class="score"><span class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span class="rating">2 / 5</span></td>
+          <td>Leaking split, a holdout used for selection, every result run once</td>
+        </tr>
+        <tr>
+          <td>Data engineering</td>
+          <td class="score"><span class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="rating">3 / 5</span></td>
+          <td>Sound dataset design; thin plumbing and no provenance</td>
+        </tr>
+        <tr>
+          <td>Software craft</td>
+          <td class="score"><span class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span class="rating">2 / 5</span></td>
+          <td>Exploration code that never graduated, and heavy duplication</td>
+        </tr>
+        <tr>
+          <td>Reproducibility</td>
+          <td class="score"><span class="meter" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i><i></i></span><span class="rating">1 / 5</span></td>
+          <td>A stranger cannot re-run a single result in the repository</td>
+        </tr>
+        <tr>
+          <td>Shipping &amp; productionisation</td>
+          <td class="score"><span class="meter" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="rating">5 / 5</span></td>
+          <td>Raster to a playable browser demo, alone. Genuinely rare breadth</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Done well</h3>
+
+  <ul class="assess good">
+    <li>
+      <h4>Chose the right objective over the better number <span class="tag">modelling</span></h4>
+      <p>In <code>14</code>, SSIM-without-MAE posted the best held-out loss in the entire file (0.1256) and was rejected for failing the camel test; the shipped configuration scores worse (0.1409). Recognising that pixel error is the wrong question for an underdetermined task &mdash; and then acting against your own metric &mdash; is the strongest single piece of judgment in the project. Plenty of stronger engineers would have shipped the winning number and moved on.</p>
+    </li>
+    <li>
+      <h4>Debugged by control, not by intuition <span class="tag">modelling</span> <span class="tag">craft</span></h4>
+      <p>When <code>18</code> refused to converge, the move was to reproduce <code>06</code>&rsquo;s known-good configuration inside <code>18</code>&rsquo;s harness. That isolates harness from architecture in one run, and it found a real bug in the output head. The instinct to build a control rather than keep tuning is exactly right, and it is what turned a written-off script into a shipped model.</p>
+    </li>
+    <li>
+      <h4>Optimised for a property no metric measured <span class="tag">production</span></h4>
+      <p><em>&ldquo;This prevents instability in UI usage (otherwise single value changes blow up the output!)&rdquo;</em>, beside a <code>Dropout(0.1)</code>. The model that won on held-out loss was unusable interactively because it was not smooth with respect to its <em>input</em>. Noticing that, and paying accuracy for it, is productionisation thinking that a lot of data scientists never develop.</p>
+    </li>
+    <li>
+      <h4>Reasoned about capacity rather than just adding data <span class="tag">modelling</span></h4>
+      <p>Thirty times more tiles made outputs flatter, and the log works out why: a fixed-width bottleneck fed too many samples starts averaging. From that comes a stated working rule &mdash; prototype on the small set with a wide bottleneck and heavy dropout, then re-fit the winner on the large set with dropout removed. That is a correct mental model being built from evidence, not a recipe copied from somewhere.</p>
+    </li>
+    <li>
+      <h4>Picked the right invariance <span class="tag">data science</span></h4>
+      <p>Normalising every tile by its own min and half-range means the network only ever learns shape, never absolute elevation. It is one line in <code>terrain_set2</code>, and it is the reason the interactive demo is possible at all: whatever range the user happens to draw in becomes the tile&rsquo;s range. Feature design that quietly determines whether the product can exist is the kind that deserves credit.</p>
+    </li>
+    <li>
+      <h4>Killed its own ideas on evidence <span class="tag">modelling</span></h4>
+      <p>The frozen-decoder approach was tried twice &mdash; once against the autoencoder in <code>11</code>, once against the VAE in <code>16</code> &mdash; and dropped both times. The skip connections that were the entire reason for writing <code>18</code> were rejected after they were finally made to work, because the output looked square. Low attachment to sunk cost is rarer than it should be, particularly when nobody else is watching.</p>
+    </li>
+    <li>
+      <h4>Recorded negative results with interpretation <span class="tag">method</span></h4>
+      <p><em>&ldquo;too flat&rdquo;</em>, <em>&ldquo;too many wrinkles!&rdquo;</em>, <em>&ldquo;boring&rdquo;</em>, <em>&ldquo;fails camel test&rdquo;</em>, <em>&ldquo;I think this is a lost cause :) Move on!&rdquo;</em>. As an experiment record this is unstructured prose, and I criticise that below. As <em>interpretation</em> it is better than a great deal of properly tracked work, where every run has a number and nobody can remember what any of the outputs looked like.</p>
+    </li>
+    <li>
+      <h4>Deployed the artifact continuously <span class="tag">production</span></h4>
+      <p>From <code>14</code> onward the training loop exports ONNX into <code>ui/dist/</code> on every improved epoch. The demo and the current best checkpoint therefore never drift apart, and there is no separate release step to forget. Small, cheap, and the sort of thing usually bolted on much later or never.</p>
+    </li>
+  </ul>
+
+  <h3>Done badly</h3>
+
+  <ul class="assess bad">
+    <li>
+      <h4>The validation split leaks, and everything downstream inherits it <span class="tag">method</span></h4>
+      <p>A 128-pixel window at stride 8 means neighbouring samples share 94% of their pixels, so a random split scatters near-duplicates across train and validation. Validation sits near 0.007 while a genuinely held-out raster sits near 0.05. The practical consequence is severe: the 0.0070-against-0.0076 comparisons that settled several architecture questions are not measurements of anything. To the author&rsquo;s credit this was spotted and written down &mdash; on the last day, as a question.</p>
+    </li>
+    <li>
+      <h4>The holdout was used for model selection <span class="tag">method</span></h4>
+      <p><code>test3</code> appears about a dozen times in <code>18</code>&rsquo;s log as the deciding signal, including the phrase <em>&ldquo;best test3 so far&rdquo;</em>, and the held-out file was swapped at least three times mid-sequence (<em>&ldquo;Note test file change&rdquo;</em>). Once you select on a set it stops estimating generalisation and becomes a second validation set. There is no untouched final holdout anywhere in the repository, and the fix costs nothing: one raster you agree to open once.</p>
+    </li>
+    <li>
+      <h4>Every result is a single run <span class="tag">method</span></h4>
+      <p>No configuration was trained more than once, so there is no estimate of seed-to-seed variance anywhere. Without that, choosing 0.0526 over 0.0532 is not a decision, and two of those calls were recorded as architecture verdicts. Three seeds on the four shortlisted configurations would have cost one evening and changed what the tables mean.</p>
+    </li>
+    <li>
+      <h4>The same code, twelve times <span class="tag">craft</span></h4>
+      <p>The <code>View</code>/<code>Unflatten</code> workaround is copy-pasted into twelve files. Model definitions appear verbatim in seven. The sixty-line matplotlib viewer is redefined in seven. There is no <code>models.py</code> and no plotting module, so improving the viewer means editing it seven times &mdash; which is why the test harnesses have visibly drifted apart, with different files checking different things.</p>
+    </li>
+    <li>
+      <h4>Pickled whole modules instead of state dictionaries <span class="tag">craft</span></h4>
+      <p>Every checkpoint is <code>torch.save(net, &hellip;)</code>. That welds each artifact to the source layout at the moment it was written, and it is precisely why <code>13_onnx.py</code> must carry verbatim copies of every model class in order to load anything. <code>state_dict()</code> plus a small config file beside it costs nothing and removes the entire problem, including the need for that file to exist.</p>
+    </li>
+    <li>
+      <h4>Two defects a second reader would have caught <span class="tag">craft</span></h4>
+      <p>In <code>04</code>, <code>torch.save</code> runs in <em>both</em> branches of the early-stopping check, so <code>models/04</code> holds the last epoch rather than the best one &mdash; the validation figures quoted in that file describe a model that was then overwritten. And <code>terrain_set.py</code> constructs a dataset and indexes it at module scope against a hard-coded path, so importing it fails unless that exact GeoTIFF is present; five scripts import it. Neither is a sign of weak engineering so much as of working without review, which is the structural risk of a solo project and worth compensating for deliberately.</p>
+    </li>
+    <li>
+      <h4>The mapping from run to configuration is prose <span class="tag">method</span> <span class="tag">craft</span></h4>
+      <p>Hyperparameters are module-level constants edited in place. There is no <code>argparse</code> anywhere (it is declared as a dependency and used in no file), no config files, no run-log artifact. Reconstructing the tables in this write-up meant reading comment blocks against git history, and several rows are missing a validation or test figure simply because recording was manual and asymmetric. This is also the direct cause of the sparse hyperparameter search: sweeping requires editing source, so it never became a loop.</p>
+    </li>
+    <li>
+      <h4>The declared environment cannot run the two most important scripts <span class="tag">reproducibility</span></h4>
+      <p><code>pytorch_msssim</code> is imported by <code>14</code> and <code>18</code> &mdash; the VAE and the U-Net, the two models that shipped &mdash; and appears in no dependency list. Not one pip dependency is version-pinned, despite <code>conda-lock</code> being listed among them and no lock file existing. A fresh clone cannot train the models the demo serves.</p>
+    </li>
+    <li>
+      <h4>The dataset is unreproducible <span class="tag">data engineering</span></h4>
+      <p>Ten specific rasters, referenced by filename, with no fetch script, no manifest and no checksums, and <code>data/</code> in <code>.gitignore</code>. The README explains what the project is and not how to run any part of it. For a project whose central claim is empirical, this is the gap that matters most: no result in it can be independently checked.</p>
+    </li>
+    <li>
+      <h4>Data plumbing left at first-draft quality <span class="tag">data engineering</span></h4>
+      <p><code>img.read(1)</code> pulls each 400&nbsp;MB raster fully into memory &mdash; roughly 4&nbsp;GB across the ten-file runs &mdash; where rasterio offers windowed reads that suit a sliding-window dataset exactly; the downsample then materialises another full float32 copy. Nodata is detected with a hard-coded <code>&lt; -10000</code> rather than the raster&rsquo;s own nodata tag. And <code>__getitem__</code> performs a pandas <code>.iloc</code> row lookup per sample, in the hot path of every epoch. Notably the author did <em>measure</em> loader latency and left the numbers in a comment, so the instinct was there; the follow-through was not.</p>
+    </li>
+    <li>
+      <h4>Two undocumented distribution shifts <span class="tag">data science</span></h4>
+      <p><code>min_elev_diff</code> discards every tile with under 20&nbsp;m of relief, so the model never sees flat ground &mdash; which means drawing two flat profiles in the demo is out-of-distribution by construction. And <code>max_pool2d</code> downsampling keeps the highest point in each cell, systematically thickening ridges and erasing narrow gullies, working against the drainage structure that turned out to be the model&rsquo;s most admired behaviour. Both are defensible choices. Neither is written down as a caveat, and both shape what the product can do.</p>
+    </li>
+  </ul>
+
+  <div class="calib">
+    <h3>What I am not holding this to</h3>
+    <p>Calibration matters, so it is worth being explicit about the criticisms I would consider unreasonable here. None of the following is a fair expectation of a one-person exploratory project: continuous integration, containerisation, a model registry, a serving stack, drift or performance monitoring, distributed training, unit tests on plotting code, formal design documents, or anything resembling a review process.</p>
+    <p>Nor is the notebook-style <code>#%%</code> format a mistake. Cell-based scripts are the correct tool for the first fortnight, when the question is still &ldquo;what does this data even look like&rdquo;. The criticism above is not that the project started there. It is that a codebase with a public artifact and a seven-week life never graduated <em>any</em> of it &mdash; no shared module ever appeared, no entrypoint, no run log &mdash; and the cost compounded, most visibly as a hyperparameter search that stayed a prose log because sweeping would have meant editing source.</p>
+    <p>It is also fair to say a personal project is entitled to optimise for its author&rsquo;s interest, and by that measure this one succeeded: it shipped, it works, it is fun, and the loss-design detour in <code>14</code> taught its author something real that a tidier project might have skipped straight past.</p>
+  </div>
+
+  <h3>If I had one week on it</h3>
+
+  <p>Ordered so that each day makes the next one cheaper. The first day is the one that matters; the rest is consolidation.</p>
+
+  <ol class="steps">
+    <li>
+      <h4>Day 1 &mdash; earn one trustworthy table <span class="tag">method</span></h4>
+      <p>Carve each raster into disjoint spatial blocks, assign whole blocks to train or validation, and window only inside a block. Freeze one raster as a final holdout and agree not to open it until the end. Then re-run the four shortlisted configurations at three seeds each. That produces the first honest comparison in the project&rsquo;s history, and I would expect several recorded verdicts to flip &mdash; which is the point.</p>
+    </li>
+    <li>
+      <h4>Day 2 &mdash; one package <span class="tag">craft</span></h4>
+      <p>A <code>terrain/</code> package with <code>data.py</code>, <code>models.py</code> and <code>viz.py</code>. Delete twelve copies of <code>View</code>, seven model definitions and seven viewers. Move to <code>state_dict()</code> with a JSON sidecar carrying the configuration, which also makes <code>13_onnx.py</code>&rsquo;s verbatim class copies unnecessary.</p>
+    </li>
+    <li>
+      <h4>Day 3 &mdash; an entrypoint and a run log <span class="tag">method</span></h4>
+      <p><code>train.py --config foo.yaml</code>, appending one JSONL line per run: config hash, seed, validation, test, artifact path, size in megabytes. Nothing heavier is needed at this scale &mdash; no tracking server, no dashboard. The prose log becomes queryable, and sweeps stop requiring source edits.</p>
+    </li>
+    <li>
+      <h4>Day 4 &mdash; the check-sheet as code <span class="tag">method</span></h4>
+      <p>Encode the seven qualitative tests as fixed synthetic profile pairs and render a deterministic contact sheet per checkpoint. Add two numbers that currently do not exist: edge-fidelity error, and an input-sensitivity score. That second one converts the best intuition in the project &mdash; dropout 0.1 for interactive stability &mdash; from a hunch into a measurement you can regress against.</p>
+    </li>
+    <li>
+      <h4>Day 5 &mdash; make it reproducible <span class="tag">reproducibility</span></h4>
+      <p>Pin <code>environment.yml</code>, add the missing <code>pytorch_msssim</code>, commit the lock file. Add a <code>fetch_data.sh</code> with the ten ScienceBase URLs and their checksums. Extend the README with the run order. This is the cheapest day of the week and it is the difference between a repository someone can learn from and one they can only read.</p>
+    </li>
+  </ol>
+
+  <h3>The one habit worth changing</h3>
+
+  <p>Every good decision in this project came from looking at the output: shipping the model with the worse loss, buying input stability with dropout, abandoning the frozen decoder, rejecting the skip connections that had taken a fortnight to get working. That is the hard part, and it is the part this developer is genuinely good at.</p>
+
+  <p>Every weak spot is about making that judgment durable &mdash; a split you can trust, a configuration you can recover, an environment that installs, a test set you have not already spent. For two weeks of exploration, trading all of that for speed is the right call. Sustained across seven weeks and a public artifact, it means one person is the only one who can tell which of forty checkpoints is any good, and only for as long as they still remember. Closing that gap is worth more than any architecture in the repository, and on the evidence of the reasoning in these comment blocks, it is well within reach.</p>
+</section>
+  </main>
+</div>
+
+<footer class="sheet">
+  <span>dirthill &mdash; terrain from cross-sections</span>
+  <span><a href="https://github.com/mateusz/dirthill">github.com/mateusz/dirthill</a></span>
+  <span><a href="https://mateusz.github.io/dirthill/">Interactive demo</a></span>
+  <span>Data: USGS 3DEP 1&nbsp;m DEM, public domain</span>
+</footer>
+
+</div>
+</body>
+</html>
